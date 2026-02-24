@@ -57,60 +57,6 @@ Detailed flow of how a query becomes a final answer. Arrows show direction and c
 
 ![Architecture: User → Orchestrator → Agents → Data layer → final answer](arch.png)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  User / query_cli                                                               │
-└─────────────────────────────────────────────────────────────────────────────────┘
-    │
-    │  ①  POST /query  { "query": "What are the safety guidelines for product X?" }
-    ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  ORCHESTRATOR  (port 8000)                                                      │
-│  • Persist request (app.requests)                                               │
-│  • Planner (LLM): build plan → [ { agent_name, task_description }, ... ]        │
-│  • Persist plan (app.plans)                                                     │
-└─────────────────────────────────────────────────────────────────────────────────┘
-    │
-    │  ②  For each step in plan:
-    │     POST http://127.0.0.1:{agent.port}/invoke
-    │     { "task": "<task_description>", "context": "Original query: ...\nStep 1 (...): ..." }
-    │
-    ├──────────────────────────┬──────────────────────────┬──────────────────────────┐
-    ▼                          ▼                          ▼                          │
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                        │
-│  AGENT          │  │  AGENT          │  │  AGENT          │                        │
-│  researcher     │  │  analyst        │  │  writer         │                        │
-│  (port 8001)    │  │  (port 8002)    │  │  (port 8003)    │                        │
-│                 │  │                 │  │                 │                        │
-│  Tools:         │  │  Tools:         │  │  Tools:         │                        │
-│  search_docs,   │  │  query_facts    │  │  (none)         │                        │
-│  query_facts    │  │                 │  │                 │                        │
-└────────┬────────┘  └────────┬────────┘  └────────┬────────┘                        │
-    │    │                    │    │                │    │                           │
-    │    │  (tools call       │    │                │    │                           │
-    │    │   data layer)      │    │                │    │                           │
-    ▼    ▼                    ▼    ▼                ▼    ▼                           │
-┌─────────────────────────────────────────────────────────────────────────────┐      │
-│  DATA LAYER                                                                 │      │
-│  • Postgres (connected): query_facts → SELECT ...                           │      │
-│  • Chroma: search_docs → vector search                                      │      │
-└─────────────────────────────────────────────────────────────────────────────┘      │
-    │                          │                          │                          │
-    │  ③  HTTP 200            │   ③  HTTP 200            │   ③  HTTP 200           │
-    │     { "result": "...",   │     { "result": "...",   │     { "result": "..."    │
-    │       "status", "latency_ms" }  "status", "latency_ms" }  "status", ... }      │
-    └──────────────────────────┴──────────────────────────┴────────────────────────---
-    │
-    │  Orchestrator collects step results, persists (app.step_results)
-    │  Reporter (LLM): synthesize final answer from query + step_results
-    │  Persist final_answer, status (app.requests)
-    │
-    │  ④  Response to client: { "request_id", "status": "completed", "final_answer": "..." }
-    ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  User / query_cli  →  prints final answer (and step-by-step if trace)           │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
 
 **Summary**
 
