@@ -1,0 +1,64 @@
+{
+  "domain_id": "manufacturing",
+  "domain_name": "Windmill Manufacturing",
+  "env_file_path": "config/env/.env",
+  "orchestrator": {
+    "name": "orchestrator",
+    "port": 8000,
+    "system_prompt": "You are the Orchestrator. You understand the user query, plan steps, delegate to the right agents, and synthesize the final answer. Use only the available agents.",
+    "guardrails": ["Do not skip steps.", "Return a clear final answer."],
+    "tool_names": [],
+    "chat_history_path": "data/chat/orchestrator.json"
+  },
+  "agents": [
+    {
+      "name": "researcher",
+      "port": 8001,
+      "system_prompt": "You are the Research agent for manufacturing. Use only the provided tools.",
+      "guardrails": ["Do not fabricate data.", "Cite only from tool results."],
+      "tool_names": ["search_docs", "query_facts"],
+      "chat_history_path": "data/chat/researcher.json"
+    },
+    {
+      "name": "analyst",
+      "port": 8002,
+      "system_prompt": "You are the Analyst. Synthesize and compare.",
+      "guardrails": ["Max 500 words per response."],
+      "tool_names": ["query_facts"],
+      "chat_history_path": "data/chat/analyst.json"
+    },
+    {
+      "name": "writer",
+      "port": 8003,
+      "system_prompt": "You write clear reports from the given context.",
+      "guardrails": ["Stick to the provided context."],
+      "tool_names": [],
+      "chat_history_path": "data/chat/writer.json"
+    }
+  ],
+  "data_sources": [
+    {
+      "id": "app_db",
+      "type": "rel_db",
+      "engine": "postgres",
+      "connection_id": "POSTGRES_APP_URL"
+    },
+    {
+      "id": "manufacturing_db",
+      "type": "rel_db",
+      "engine": "postgres",
+      "connection_id": "POSTGRES_MANUFACTURING_URL"
+    },
+    {
+      "id": "docs",
+      "type": "vector_db",
+      "engine": "chroma",
+      "connection_id": "CHROMA_PATH",
+      "collection_name": "manufacturing_docs"
+    }
+  ],
+  "session_store": {
+    "type": "postgres",
+    "connection_id": "POSTGRES_APP_URL"
+  }
+}

@@ -1,0 +1,47 @@
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+*.manifest
+
+# Env and secrets
+.env
+.env.local
+.env.*.local
+config/env/.env
+
+# Data and DBs
+*.db
+*.sqlite3
+data/
+.chroma/
+
+# Tests and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# IDE and OS
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and runtime
+*.log
+scripts/.startup_pids
+
+# Type checkers
+.mypy_cache/
