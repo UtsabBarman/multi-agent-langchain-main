@@ -6,6 +6,15 @@ import os
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env so POSTGRES_APP_URL etc. are set when orchestrator runs (standalone or via startup.py)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+for _p in (_PROJECT_ROOT / "config" / "env" / ".env", _PROJECT_ROOT / ".env"):
+    if _p.exists():
+        load_dotenv(_p, override=False)
+        break
+
 import asyncpg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
@@ -35,7 +44,7 @@ app = FastAPI(title="Multi-Agent: Orchestrator")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "config/domains/manufacturing.json")
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = _PROJECT_ROOT
 DOMAIN_CONFIG = None
 
 
