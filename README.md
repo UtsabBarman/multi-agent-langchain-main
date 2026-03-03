@@ -55,7 +55,7 @@ You’ll see the query, plan, each `→ agent` / `← agent` line, and the final
 
 Detailed flow of how a query becomes a final answer. Arrows show direction and content of each call.
 
-![Architecture: User → Orchestrator → Agents → Data layer → final answer](arch.png)
+![Architecture: User → Orchestrator → Agents → Data layer → final answer](archs.png)
 
 
 **Summary**
