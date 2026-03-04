@@ -4,7 +4,8 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-
+from langchain_classic.agents import AgentExecutor
+from langchain_classic.agents.tool_calling_agent.base import create_tool_calling_agent
 from src.core.config.models import AgentConfig
 from src.agent.guardrails import apply_guardrails
 from src.tools.registry import get_tools
@@ -17,10 +18,19 @@ def _invoke_simple_chain(llm: Any, prompt: ChatPromptTemplate, input_text: str) 
 
 def _invoke_agent_with_tools(llm: Any, tools: list, prompt: ChatPromptTemplate, input_text: str) -> str:
     try:
-        from langchain.agents import AgentExecutor, create_tool_calling_agent
+        
         agent = create_tool_calling_agent(llm, tools, prompt)
-        executor = AgentExecutor(agent=agent, tools=tools, verbose=False, handle_parsing_errors=True)
-        out = executor.invoke({"input": input_text})
+        executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=30,
+            early_stopping_method="generate",
+        )
+        out = executor.invoke(
+            {"input": input_text}
+        )
         return out.get("output", str(out))
     except Exception:
         # Fallback: no tool loop, just LLM

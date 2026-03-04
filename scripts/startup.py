@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
-Startup script: kill processes on app ports (from config), then start orchestrator + agents.
-Optional: --no-kill, --background, --list-ports.
+Startup script: run this once to set up everything.
+
+  From project root:  python scripts/startup.py
+
+  This frees ports (orchestrator + agents), starts the orchestrator and all
+  three agents (researcher, analyst, writer). Open the Orchestrator UI in your
+  browser (URL printed at the end).
+
+  Options: --no-kill (don't kill existing processes), --background (run in
+  background), --list-ports (show ports).
 """
 import argparse
 import os
@@ -135,6 +143,7 @@ def main():
         print("Freeing ports...")
         kill_ports(ports)
 
+    print("Starting orchestrator + agents...")
     env = {**os.environ, "CONFIG_PATH": config_path}
 
     # Start orchestrator
@@ -163,6 +172,12 @@ def main():
         processes.append(proc)
         print(f"Agent {agent.name} started on port {agent.port} (PID {proc.pid})")
         time.sleep(1)
+
+    orch_port = config.orchestrator.port
+    print("")
+    print("Everything is running. Open the Orchestrator UI:")
+    print(f"  http://127.0.0.1:{orch_port}/")
+    print("")
 
     if args.background:
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,17 @@ class AgentConfig(BaseModel):
     guardrails: list[str] = Field(default_factory=list)
     tool_names: list[str] = Field(default_factory=list)
     chat_history_path: str | None = None  # JSON file for this agent's chat history; default data/chat/{name}.json
+    label: str | None = None  # Display name in UI; if unset, derived from name (e.g. "research_agent" -> "Research agent")
+
+    def get_display_label(self) -> str:
+        """Label for UI; uses config label or name with underscores as spaces, title-cased."""
+        if self.label:
+            return self.label
+        return self.name.replace("_", " ").title()
+
+    def get_icon_letter(self) -> str:
+        """Single letter for avatar/icon; first character of display label."""
+        return self.get_display_label()[0:1].upper() or "?"
 
     def get_chat_history_path(self, project_root: Any = None) -> str:
         """Resolved path for this agent's chat history JSON (relative to project root)."""

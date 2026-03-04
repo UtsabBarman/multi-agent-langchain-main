@@ -8,10 +8,10 @@ A **lightweight Python package** for a config-driven multi-agent network: one **
 
 | Command | What it does |
 |--------|----------------|
-| **`python scripts/startup.py`** | Starts the orchestrator + all agents (ports from config). Logs query, plan, and each agent call in the terminal. |
-| **`python scripts/query_cli.py "Your question"`** | Sends a query, prints step-by-step agent iteration and final answer. Use `--trace` to see URLs and request/response bodies. |
+| **`python scripts/startup.py`** | Starts the orchestrator + all agents (ports from config). Logs query, plan, and each agent call in the terminal. Prints the **Orchestrator UI** URL (e.g. http://127.0.0.1:8000/)—open it in a browser to use the chat interface with live plan and agent iframes. |
+| **`python scripts/query_cli.py "Your question"`** | Sends a sync query, prints step-by-step agent iteration and final answer. Use `--trace` to see URLs and request/response bodies. |
 
-One-time setup: create a Postgres DB, set `.env`, then run **`python scripts/migrate.py`** once.
+One-time setup: create a Postgres DB, copy `config/env/.env.example` to `config/env/.env` (or `.env` at project root), set `POSTGRES_APP_URL` and `OPENAI_API_KEY`, then run **`python scripts/migrate.py`** once.
 
 ---
 
@@ -24,7 +24,7 @@ python3 -m venv venv && source venv/bin/activate
 pip install -e .
 
 # 2. Config
-cp config/env/.env.example config/env/.env
+cp config/env/.env.example config/env/.env   # or copy to .env at project root
 # Set POSTGRES_APP_URL, OPENAI_API_KEY (and optionally CHROMA_PATH, POSTGRES_* for tools)
 
 # 3. DB (once)
@@ -41,13 +41,21 @@ PYTHONPATH=. python scripts/query_cli.py "What are the safety guidelines for pro
 
 You’ll see the query, plan, each `→ agent` / `← agent` line, and the final answer in the CLI and in the startup terminal logs.
 
+**Orchestrator Web UI:** After running `startup.py`, open the URL printed at the end (e.g. `http://127.0.0.1:8000/`) in your browser. You get a chat interface that sends queries via `POST /query/async`, shows the plan and live step progress (Researcher → Analyst → Writer), and displays each agent’s output in iframes. When the run finishes, the final reporter answer is shown in the chat.
+
 ---
 
 ## What’s in the box
 
-- **Orchestrator** (FastAPI): receives a query → plans steps (LLM) → calls agents over HTTP → persists requests/plans/step_results in Postgres → synthesizes final answer.
-- **Agents** (FastAPI, one process per agent): LangChain agents with system prompt, guardrails, and tools (e.g. `query_facts`, `search_docs`). Ports and config come from a domain JSON file.
+- **Orchestrator** (FastAPI): receives a query → plans steps (LLM) → calls agents over HTTP → persists requests/plans/step_results in Postgres → synthesizes final answer. Serves a **web UI** at `GET /` (chat + agent iframes) and supports **sync** (`POST /query`) and **async** (`POST /query/async` + poll `GET /request/{request_id}`) flows.
+- **Agents** (FastAPI, one process per agent): LangChain agents with system prompt, guardrails, and tools (e.g. `query_facts`, `search_docs`). Each agent exposes `POST /invoke`, `GET /` (simple task/result UI), and `GET /last`. Ports and config come from a domain JSON file.
 - **Config**: one JSON per domain (orchestrator + agents + data_sources) and one `.env`. No code changes for new use cases—edit config only.
+
+---
+
+## UI
+
+![Orchestrator chat UI with agent iframes](ui.png)
 
 ---
 
@@ -75,21 +83,26 @@ Agents run in separate processes (one per port). The orchestrator calls them ove
 
 ```
 multi-agent-langchain/
-├── config/domains/          # Domain JSON (e.g. manufacturing.json)
-├── config/env/              # .env (secrets)
+├── config/
+│   ├── domains/             # Domain JSON (e.g. manufacturing.json)
+│   └── env/                 # .env and .env.example (secrets)
+├── data/                    # Optional data (e.g. chat state, chroma)
+├── migrations/versions/     # SQL: app.requests, app.plans, app.step_results
 ├── src/
-│   ├── core/                # Config loader, contracts
-│   ├── data_access/         # Postgres + Chroma clients
-│   ├── tools/               # query_facts, search_docs
-│   ├── agent/               # Agent FastAPI (POST /invoke)
-│   ├── orchestrator/        # Planner, executor, reporter, FastAPI (POST /query)
+│   ├── core/                # Config loader, contracts, exceptions
+│   ├── data_access/         # Postgres + Chroma clients (relational/, vector/)
+│   ├── tools/               # query_facts, search_docs (rel_db/, vector/)
+│   ├── agent/               # Agent FastAPI (POST /invoke, GET /, GET /last)
+│   ├── orchestrator/        # Planner, executor, reporter, session; FastAPI (/, /query, /query/async, /request/{id})
 │   └── gateway/             # Optional reverse proxy
-├── migrations/versions/     # One SQL file: app.requests, app.plans, app.step_results
 ├── scripts/
-│   ├── startup.py           # Start orchestrator + agents
-│   ├── query_cli.py         # Send query, print steps + answer
+│   ├── startup.py           # Start orchestrator + all agents (prints UI URL)
+│   ├── query_cli.py         # Send query via CLI, print steps + answer
+│   ├── listen_orchestrator.py # Poll GET /trace/last and print latest request
 │   └── migrate.py           # Run DB migration (once)
+├── tests/                   # Unit and integration tests
 ├── pyproject.toml
+├── requirements.txt
 └── README.md
 ```
 
@@ -100,9 +113,10 @@ multi-agent-langchain/
 | Command | Description |
 |--------|--------------|
 | `PYTHONPATH=. python scripts/migrate.py` | Run DB migration once (needs `POSTGRES_APP_URL`). |
-| `PYTHONPATH=. python scripts/startup.py` | Start orchestrator + agents. `--no-kill`, `--background`, `--list-ports`, `--config <path>`. |
-| `PYTHONPATH=. python scripts/query_cli.py "question"` | Send query; prints request_id, steps, final answer. |
+| `PYTHONPATH=. python scripts/startup.py` | Start orchestrator + agents. Prints Orchestrator UI URL (e.g. http://127.0.0.1:8000/). Options: `--no-kill`, `--background`, `--list-ports`, `--config <path>`. |
+| `PYTHONPATH=. python scripts/query_cli.py "question"` | Send query (sync); prints request_id, steps, final answer. |
 | `PYTHONPATH=. python scripts/query_cli.py "question" --trace` | Same + full URL and request/response for each HTTP call. |
+| `PYTHONPATH=. python scripts/listen_orchestrator.py` | Poll orchestrator `GET /trace/last` every 5s and print latest request (query, plan, step_results, final answer). Optional: `--url`, `--interval`. |
 
 From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 
@@ -117,8 +131,25 @@ From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 
 ## API (for integration)
 
-- **Orchestrator**: `POST /query` → `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. `GET /health`.
-- **Agent**: `POST /invoke` → `{ "task", "context"? }` → `{ "result", "status", "latency_ms" }`. `GET /health`.
+**Orchestrator** (default port 8000):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web UI: chat + agent iframes, plan, live step progress, final answer. |
+| `/health` | GET | Health check. |
+| `/query` | POST | Sync query. Body: `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. |
+| `/query/async` | POST | Async query. Body: `{ "query": "..." }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress and `final_answer`. |
+| `/request/{request_id}` | GET | Get request state: `plan`, `step_results`, `final_answer`, `status`. |
+| `/trace/last` | GET | Last request trace (for `listen_orchestrator.py`). |
+
+**Agent** (per-agent port, e.g. 8001–8003):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Simple UI: last task and result. |
+| `/health` | GET | Health check. |
+| `/last` | GET | Last invoke payload and result. |
+| `/invoke` | POST | Run agent. Body: `{ "task", "context"? }` → `{ "result", "status", "latency_ms" }`. |
 
 ---
 
@@ -223,6 +254,20 @@ To tailor the package to a concrete use case (e.g. “HR policy answers”, “s
 
 6. **Test**  
    Run `startup.py` with your domain config and send representative queries via `query_cli.py`. Use `--trace` to inspect requests and responses. Adjust prompts, guardrails, or tool assignments until behavior matches the use case.
+
+---
+
+## Tech used
+
+| Area | Technology |
+|------|------------|
+| **Language** | Python 3.11+ |
+| **API / services** | FastAPI, Uvicorn |
+| **Agents / LLM** | LangChain, LangChain-OpenAI, LangChain-Classic (tool-calling agent, AgentExecutor) |
+| **App database** | PostgreSQL (asyncpg, SQLAlchemy async) |
+| **Vector store** | Chroma (LangChain-Chroma) |
+| **Config** | JSON (domain files), python-dotenv (.env) |
+| **CLI / scripts** | Python (startup, query_cli, listen_orchestrator, migrate) |
 
 ---
 

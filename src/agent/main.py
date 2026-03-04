@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 
@@ -23,11 +24,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 DOMAIN_CONFIG = None
 AGENT_RUNNER = None
 AGENT_NAME = None
+AGENT_CONFIG = None  # AgentConfig for UI label/icon from config
+
+# Last invoke (for simple chat UI in iframe)
+LAST_INVOKE: dict | None = None
+
+
+def _avatar_cls(name: str) -> str:
+    """CSS class for avatar color; matches orchestrator."""
+    return name if name in ("researcher", "analyst", "writer") else "unknown"
 
 
 @app.on_event("startup")
 def startup():
-    global DOMAIN_CONFIG, AGENT_RUNNER, AGENT_NAME
+    global DOMAIN_CONFIG, AGENT_RUNNER, AGENT_NAME, AGENT_CONFIG
     config_path = os.environ.get("CONFIG_PATH", "config/domains/manufacturing.json")
     agent_id = os.environ.get("AGENT_ID", "researcher")
     root = Path(__file__).resolve().parent.parent.parent
@@ -36,6 +46,7 @@ def startup():
     clients = get_clients(DOMAIN_CONFIG, root)
     AGENT_RUNNER = get_agent_runner(agent_config, clients)
     AGENT_NAME = agent_id
+    AGENT_CONFIG = agent_config
 
 
 @app.get("/health")
@@ -45,6 +56,7 @@ def health():
 
 @app.post("/invoke", response_model=AgentInvokeResponse)
 def invoke(req: AgentInvokeRequest):
+    global LAST_INVOKE
     if AGENT_RUNNER is None:
         raise HTTPException(status_code=503, detail="Agent not initialized")
     log = logging.getLogger(f"agent.{AGENT_NAME}")
@@ -63,11 +75,131 @@ def invoke(req: AgentInvokeRequest):
         latency_ms = int((time.perf_counter() - start) * 1000)
         out_preview = (str(result)[:120] + "…") if len(str(result)) > 120 else str(result)
         log.info("SEND: %s (%s ms)", out_preview, latency_ms)
+        LAST_INVOKE = {"task": task, "result": result, "status": "success", "latency_ms": latency_ms}
         return AgentInvokeResponse(result=result, status="success", latency_ms=latency_ms)
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
         log.warning("SEND (failed): %s (%s ms)", e, latency_ms)
+        LAST_INVOKE = {"task": task, "result": str(e), "status": "failed", "latency_ms": latency_ms}
         return AgentInvokeResponse(result=str(e), status="failed", latency_ms=latency_ms)
+
+
+@app.get("/last")
+def get_last():
+    """Return last invoke for the agent chat iframe UI."""
+    return LAST_INVOKE or {}
+
+
+def _agent_ui_html() -> str:
+    # Label and icon from config (optional label, else derived from name)
+    if AGENT_CONFIG:
+        display_name = AGENT_CONFIG.get_display_label()
+        letter = AGENT_CONFIG.get_icon_letter()
+        avatar_cls = _avatar_cls(AGENT_CONFIG.name)
+    else:
+        display_name = (AGENT_NAME or "agent").replace("_", " ").title()
+        letter = display_name[0:1].upper() if display_name else "?"
+        avatar_cls = _avatar_cls((AGENT_NAME or "").lower())
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>""" + display_name + """</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #2d2d30; color: #e4e4e7; padding: 0.75rem; font-size: 0.9rem; }
+    .avatar { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 600; }
+    .avatar.o { background: #8e8ea0; color: #fff; }
+    .avatar.researcher { background: #0d9488; color: #fff; }
+    .avatar.analyst { background: #6366f1; color: #fff; }
+    .avatar.writer { background: #d97706; color: #fff; }
+    .avatar.unknown { background: #52525b; color: #fff; }
+    .meta { font-size: 0.7rem; color: #8e8ea0; margin-top: 0.2rem; }
+    .empty { color: #8e8ea0; font-style: italic; }
+    .msg-card { margin-top: 0.5rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.15); }
+    .msg-card .msg-label { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.7rem; font-weight: 600; color: #a0a0b0; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .msg-card details { border: none; }
+    .msg-card details summary { cursor: pointer; font-size: 0.8rem; color: #19c37d; list-style: none; padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 0.35rem; }
+    .msg-card details summary::-webkit-details-marker { display: none; }
+    .msg-card details summary::before { content: "▶"; font-size: 0.6rem; transition: transform 0.15s; }
+    .msg-card details[open] summary::before { transform: rotate(90deg); }
+    .msg-card .msg-content { padding: 0.5rem 0.65rem 0.65rem; font-size: 0.85rem; line-height: 1.5; word-break: break-word; color: #e4e4e7; }
+    .msg-card .msg-content p { margin: 0 0 0.5rem; }
+    .msg-card .msg-content h2, .msg-card .msg-content h3 { margin: 0.5rem 0 0.25rem; font-weight: 600; }
+    .msg-card .msg-content ul, .msg-card .msg-content ol { margin: 0.35rem 0; padding-left: 1.25rem; }
+    .msg-card .msg-content a { color: #19c37d; }
+    .msg-card.task .msg-label { color: #8e8ea0; }
+    .msg-card.task details summary { color: #8e8ea0; }
+  </style>
+</head>
+<body>
+  <div id="chat"></div>
+  <script>
+    function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function sanitizeHtml(htmlStr) {
+      if (!htmlStr || typeof htmlStr !== 'string') return '';
+      var allowed = ['p','div','span','br','strong','b','em','i','u','h1','h2','h3','h4','ul','ol','li','a','blockquote','hr'];
+      var wrap = document.createElement('div');
+      wrap.innerHTML = htmlStr;
+      function go(node) {
+        if (node.nodeType === 3) return node.cloneNode(true);
+        if (node.nodeType !== 1) return null;
+        var tag = node.tagName.toLowerCase();
+        if (allowed.indexOf(tag) === -1) {
+          var f = document.createDocumentFragment();
+          for (var i = 0; i < node.childNodes.length; i++) { var c = go(node.childNodes[i]); if (c) f.appendChild(c); }
+          return f;
+        }
+        var out = document.createElement(tag);
+        if (tag === 'a' && node.getAttribute('href')) {
+          var href = (node.getAttribute('href') || '').trim();
+          if (href.indexOf('javascript:') !== 0 && href.indexOf('data:') !== 0) out.setAttribute('href', href);
+        }
+        for (var i = 0; i < node.childNodes.length; i++) { var c = go(node.childNodes[i]); if (c) out.appendChild(c); }
+        return out;
+      }
+      var safe = document.createElement('div');
+      for (var i = 0; i < wrap.childNodes.length; i++) { var c = go(wrap.childNodes[i]); if (c) safe.appendChild(c); }
+      return safe.innerHTML;
+    }
+    var agentLetter = """ + repr(letter) + """;
+    var agentCls = """ + repr(avatar_cls) + """;
+    var agentLabel = """ + repr(display_name) + """;
+    var lastData = null;
+    function render() {
+      fetch('/last').then(r => r.json()).then(data => {
+        var same = lastData && lastData.task === data.task && String(lastData.result) === String(data.result) && (lastData.latency_ms || 0) === (data.latency_ms || 0);
+        if (same) return;
+        lastData = data;
+        const el = document.getElementById('chat');
+        var wasTaskOpen = el.querySelector('#details-task') && el.querySelector('#details-task').open;
+        var wasResponseOpen = el.querySelector('#details-response') && el.querySelector('#details-response').open;
+        if (!data.task && !data.result) { el.innerHTML = '<p class="empty">Waiting for tasks from orchestrator…</p>'; return; }
+        let html = '';
+        if (data.task) {
+          var taskOpen = wasTaskOpen ? ' open' : '';
+          html += '<div class="msg-card task"><div class="msg-label"><span class="avatar o" title="Orchestrator">O</span>Orchestrator · Task</div><details id="details-task"' + taskOpen + '><summary>Show in chat</summary><div class="msg-content">' + sanitizeHtml(data.task) + '</div></details></div>';
+        }
+        if (data.result != null) {
+          var responseOpen = wasResponseOpen ? ' open' : '';
+          var resultContent = sanitizeHtml(data.result) + (data.latency_ms ? '<div class="meta">' + data.latency_ms + ' ms</div>' : '');
+          html += '<div class="msg-card"><div class="msg-label"><span class="avatar ' + agentCls + '" title="' + agentLabel + '">' + agentLetter + '</span>' + agentLabel + ' · Response</div><details id="details-response"' + responseOpen + '><summary>Show in chat</summary><div class="msg-content">' + resultContent + '</div></details></div>';
+        }
+        el.innerHTML = html || '<p class="empty">Waiting for tasks…</p>';
+      }).catch(() => { document.getElementById('chat').innerHTML = '<p class="empty">Could not load last task.</p>'; });
+    }
+    render();
+    setInterval(render, 2500);
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+def agent_ui():
+    """Simple chat view for this agent (for orchestrator UI iframe)."""
+    return HTMLResponse(_agent_ui_html())
 
 
 if __name__ == "__main__":

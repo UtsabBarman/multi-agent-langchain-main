@@ -10,12 +10,14 @@ from src.core.contracts.orchestrator import StepResult
 PROMPT = """You are a reporter. Given the user query and the results from each step, write a clear, concise final answer or report.
 Do not invent information. Use only the provided step results.
 
+Format your answer as clean HTML only. Use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br> for structure. Do not use Markdown (no # or **).
+
 User query: {query}
 
 Step results:
 {step_results}
 
-Write the final answer/report:"""
+Write the final answer/report as HTML:"""
 
 
 def synthesize_final_answer(query: str, step_results: list[StepResult]) -> str:

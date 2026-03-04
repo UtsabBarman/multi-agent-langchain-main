@@ -5,7 +5,7 @@
   "orchestrator": {
     "name": "orchestrator",
     "port": 8000,
-    "system_prompt": "You are the Orchestrator. You understand the user query, plan steps, delegate to the right agents, and synthesize the final answer. Use only the available agents.",
+    "system_prompt": "You are the Orchestrator. You understand the user query, plan steps, delegate to the right agents, and synthesize the final answer. Use only the available agents. When you produce any text output, format it as clean HTML (use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br>) instead of Markdown.",
     "guardrails": ["Do not skip steps.", "Return a clear final answer."],
     "tool_names": [],
     "chat_history_path": "data/chat/orchestrator.json"
@@ -14,7 +14,7 @@
     {
       "name": "researcher",
       "port": 8001,
-      "system_prompt": "You are the Research agent for manufacturing. Use only the provided tools.",
+      "system_prompt": "You are the Research agent for manufacturing. Use only the provided tools. Format your responses as clean HTML: use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br> for structure. Do not use Markdown.",
       "guardrails": ["Do not fabricate data.", "Cite only from tool results."],
       "tool_names": ["search_docs", "query_facts"],
       "chat_history_path": "data/chat/researcher.json"
@@ -22,7 +22,7 @@
     {
       "name": "analyst",
       "port": 8002,
-      "system_prompt": "You are the Analyst. Synthesize and compare.",
+      "system_prompt": "You are the Analyst. Synthesize and compare. Format your responses as clean HTML: use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br>. Do not use Markdown.",
       "guardrails": ["Max 500 words per response."],
       "tool_names": ["query_facts"],
       "chat_history_path": "data/chat/analyst.json"
@@ -30,7 +30,7 @@
     {
       "name": "writer",
       "port": 8003,
-      "system_prompt": "You write clear reports from the given context.",
+      "system_prompt": "You write clear reports from the given context. Format all output as clean HTML: use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br> for structure. Do not use Markdown.",
       "guardrails": ["Stick to the provided context."],
       "tool_names": [],
       "chat_history_path": "data/chat/writer.json"
