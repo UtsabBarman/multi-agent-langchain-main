@@ -7,21 +7,21 @@ from src.tools.vector.search import create_search_docs_tool
 
 
 def get_tools(tool_names: list[str], clients: dict[str, Any]) -> list[Any]:
-    """Build a list of LangChain tools from tool_names, injecting clients."""
+    """Build a list of LangChain tools from tool_names, injecting clients (SQLite paths + Chroma)."""
     result = []
     for name in tool_names:
         if name == "query_facts":
-            # Use first available Postgres client (skip app_db if we want only connected DBs for tools)
-            pg_url = None
+            # First non-app_db relational client (SQLite path)
+            db_path = None
             for k, v in clients.items():
                 if k == "app_db":
                     continue
-                if isinstance(v, str) and v.startswith("postgresql"):
-                    pg_url = v
+                if isinstance(v, str) and not v.startswith("postgresql"):
+                    db_path = v
                     break
-            if not pg_url:
+            if not db_path:
                 continue
-            result.append(create_query_facts_tool(pg_url))
+            result.append(create_query_facts_tool(db_path))
         elif name == "search_docs":
             retriever = clients.get("docs")
             if retriever is None:

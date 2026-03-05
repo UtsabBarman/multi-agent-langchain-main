@@ -40,14 +40,14 @@
     {
       "id": "app_db",
       "type": "rel_db",
-      "engine": "postgres",
-      "connection_id": "POSTGRES_APP_URL"
+      "engine": "sqlite",
+      "connection_id": "SQLITE_APP_PATH"
     },
     {
       "id": "manufacturing_db",
       "type": "rel_db",
-      "engine": "postgres",
-      "connection_id": "POSTGRES_MANUFACTURING_URL"
+      "engine": "sqlite",
+      "connection_id": "SQLITE_MANUFACTURING_PATH"
     },
     {
       "id": "docs",
@@ -58,7 +58,7 @@
     }
   ],
   "session_store": {
-    "type": "postgres",
-    "connection_id": "POSTGRES_APP_URL"
+    "type": "sqlite",
+    "connection_id": "SQLITE_APP_PATH"
   }
 }

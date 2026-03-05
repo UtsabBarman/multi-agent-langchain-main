@@ -1,4 +1,4 @@
-"""Migration runner: run SQL files against POSTGRES_APP_URL."""
+"""Migration runner: run SQL files against app DB (SQLite: SQLITE_APP_PATH)."""
 import os
 import sys
 from pathlib import Path

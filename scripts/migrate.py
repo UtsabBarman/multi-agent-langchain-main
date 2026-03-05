@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Run migrations against POSTGRES_APP_URL."""
+"""Run SQLite migration for app DB (SQLITE_APP_PATH or DATABASE_URL=sqlite://...)."""
+from __future__ import annotations
+
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -9,45 +12,42 @@ sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
 
-# Load env
 for p in [ROOT / "config" / "env" / ".env", ROOT / ".env"]:
     if p.exists():
         load_dotenv(p)
         break
 
-POSTGRES_APP_URL = os.getenv("POSTGRES_APP_URL")
-if not POSTGRES_APP_URL:
-    print("POSTGRES_APP_URL not set. Set it in config/env/.env or .env")
-    sys.exit(1)
-
-# asyncpg URL -> psycopg2-style for running raw SQL (sync)
-# We run SQL with asyncpg in sync style via asyncio.run, or use a sync driver.
-# Simplest: use asyncpg with asyncio to run the migration file.
-import asyncio
-import asyncpg
+env = dict(os.environ)
 
 
-async def run_migration():
-    # asyncpg uses postgresql:// not postgresql+asyncpg://
-    url = POSTGRES_APP_URL.replace("postgresql+asyncpg://", "postgresql://")
-    conn = await asyncpg.connect(url)
+async def run_migration_sqlite():
+    import aiosqlite
+    path = (
+        env.get("SQLITE_APP_PATH")
+        or env.get("DATABASE_URL", "").replace("sqlite:///", "").replace("sqlite://", "").strip()
+    )
+    if not path:
+        print("SQLITE_APP_PATH or DATABASE_URL (sqlite://...) not set. Set it in config/env/.env or .env")
+        sys.exit(1)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = await aiosqlite.connect(path)
     try:
-        sql_path = ROOT / "migrations" / "versions" / "001_initial.sql"
+        sql_path = ROOT / "migrations" / "versions" / "001_initial_sqlite.sql"
         sql = sql_path.read_text(encoding="utf-8")
-        # Remove single-line comments and split by semicolon
         lines = [line for line in sql.split("\n") if not line.strip().startswith("--")]
         clean = "\n".join(lines)
         for stmt in clean.split(";"):
             stmt = stmt.strip()
             if stmt:
                 await conn.execute(stmt + ";")
-        print("Migration 001_initial.sql applied successfully.")
+        await conn.commit()
+        print("Migration 001_initial_sqlite.sql applied successfully.")
     finally:
         await conn.close()
 
 
 def main():
-    asyncio.run(run_migration())
+    asyncio.run(run_migration_sqlite())
 
 
 if __name__ == "__main__":

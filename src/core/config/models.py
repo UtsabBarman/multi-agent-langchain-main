@@ -34,13 +34,13 @@ class AgentConfig(BaseModel):
 class DataSourceConfig(BaseModel):
     id: str
     type: str  # "rel_db" | "vector_db"
-    engine: str  # "postgres" | "chroma"
-    connection_id: str  # env var name
+    engine: str  # "sqlite" | "chroma"
+    connection_id: str  # env var name (e.g. SQLITE_APP_PATH, SQLITE_MANUFACTURING_PATH, CHROMA_PATH)
     collection_name: str | None = None  # for chroma
 
 
 class SessionStoreConfig(BaseModel):
-    type: str  # "postgres"
+    type: str  # "sqlite"
     connection_id: str
 
 

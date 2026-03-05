@@ -7,7 +7,6 @@ from typing import Any
 from dotenv import load_dotenv
 
 from src.core.config.models import DomainConfig
-from src.data_access.relational.postgres import create_engine as create_pg_engine
 from src.data_access.vector.chroma import create_chroma_retriever
 
 
@@ -23,22 +22,22 @@ def build_clients(
     domain_config: DomainConfig,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Build data access clients from domain config. Keys = data_sources[].id."""
+    """Build data access clients from domain config. Keys = data_sources[].id. SQLite + Chroma only."""
     env = _load_env_for_config(domain_config, project_root)
     clients: dict[str, Any] = {}
+    root = project_root or Path.cwd()
 
     for ds in domain_config.data_sources:
-        if ds.type == "rel_db" and ds.engine == "postgres":
-            url = env.get(ds.connection_id)
-            if not url:
+        if ds.type == "rel_db" and ds.engine == "sqlite":
+            path = env.get(ds.connection_id, "").strip()
+            if not path:
                 continue
-            create_pg_engine(url, key=ds.id)
-            clients[ds.id] = url
+            path = (root / path).resolve() if not Path(path).is_absolute() else Path(path)
+            clients[ds.id] = str(path)
         elif ds.type == "vector_db" and ds.engine == "chroma":
             path = env.get(ds.connection_id, "")
             if not path:
                 continue
-            root = project_root or Path.cwd()
             abs_path = (root / path).resolve() if not Path(path).is_absolute() else Path(path)
             retriever = create_chroma_retriever(
                 persist_directory=str(abs_path),

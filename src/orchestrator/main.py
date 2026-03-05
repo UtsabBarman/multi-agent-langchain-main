@@ -11,14 +11,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env so POSTGRES_APP_URL etc. are set when orchestrator runs (standalone or via startup.py)
+# Load .env so SQLITE_APP_PATH etc. are set when orchestrator runs (standalone or via startup.py)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 for _p in (_PROJECT_ROOT / "config" / "env" / ".env", _PROJECT_ROOT / ".env"):
     if _p.exists():
         load_dotenv(_p, override=False)
         break
-
-import asyncpg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("orchestrator")
@@ -30,8 +28,8 @@ from starlette.responses import JSONResponse
 from src.core.config.loader import load_domain_config
 from src.core.contracts.gateway import QueryRequest, QueryResponse
 from src.core.contracts.orchestrator import Plan, StepResult
+from src.data_access.app_db import open_app_db_connection
 from src.orchestrator.session import (
-    get_app_db_url,
     create_request,
     update_request_final,
     save_plan,
@@ -416,12 +414,9 @@ async def get_request_trace(request_id: str):
         raise HTTPException(status_code=400, detail="Invalid request_id")
     env = dict(os.environ)
     try:
-        url = get_app_db_url(env)
-    except ValueError:
-        url = os.getenv("POSTGRES_APP_URL", "").replace("postgresql+asyncpg://", "postgresql://")
-    if not url:
-        raise HTTPException(status_code=500, detail="POSTGRES_APP_URL not set")
-    conn = await asyncpg.connect(url)
+        conn = await open_app_db_connection(env)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         req = await get_request(conn, rid)
         if not req:
@@ -448,12 +443,9 @@ async def get_trace_last(domain_id: str | None = None):
     """Return full trace for the most recent request (optional domain_id filter). For Chat UI."""
     env = dict(os.environ)
     try:
-        url = get_app_db_url(env)
-    except ValueError:
-        url = os.getenv("POSTGRES_APP_URL", "").replace("postgresql+asyncpg://", "postgresql://")
-    if not url:
-        raise HTTPException(status_code=500, detail="POSTGRES_APP_URL not set")
-    conn = await asyncpg.connect(url)
+        conn = await open_app_db_connection(env)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         rid = await get_latest_request_id(conn, domain_id)
         if not rid:
@@ -485,13 +477,9 @@ async def query(req: QueryRequest):
     log.info("QUERY: %s", (req.query[:200] + "…") if len(req.query) > 200 else req.query)
 
     try:
-        url = get_app_db_url(env)
-    except ValueError:
-        url = os.getenv("POSTGRES_APP_URL", "").replace("postgresql+asyncpg://", "postgresql://")
-    if not url:
-        raise HTTPException(status_code=500, detail="POSTGRES_APP_URL not set")
-
-    conn = await asyncpg.connect(url)
+        conn = await open_app_db_connection(env)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         request_id = await create_request(conn, domain_id, req.query, req.session_id)
     finally:
@@ -501,13 +489,13 @@ async def query(req: QueryRequest):
         plan = build_plan(req.query, config)
     except Exception as e:
         log.exception("Plan failed")
-        await _update_status(url, request_id, "failed", error_message=str(e))
+        await _update_status(env, request_id, "failed", error_message=str(e))
         return QueryResponse(request_id=str(request_id), status="failed", error=str(e))
 
     for i, s in enumerate(plan.steps, 1):
         log.info("PLAN step %s → %s: %s", i, s.agent_name, (s.task_description[:80] + "…") if len(s.task_description) > 80 else s.task_description)
 
-    conn = await asyncpg.connect(url)
+    conn = await open_app_db_connection(env)
     try:
         await save_plan(conn, request_id, plan)
     finally:
@@ -515,7 +503,7 @@ async def query(req: QueryRequest):
 
     step_results = await run_plan(plan, req.query, config)
 
-    conn = await asyncpg.connect(url)
+    conn = await open_app_db_connection(env)
     try:
         step_by_idx = {s.step_index: s for s in plan.steps}
         for sr in step_results:
@@ -538,29 +526,29 @@ async def query(req: QueryRequest):
         final_answer = synthesize_final_answer(req.query, step_results)
     except Exception as e:
         log.exception("Synthesis failed")
-        await _update_status(url, request_id, "partial", error_message=str(e))
+        await _update_status(env, request_id, "partial", error_message=str(e))
         return QueryResponse(request_id=str(request_id), status="partial", final_answer=None, error=str(e))
 
     log.info("FINAL ANSWER: %s", (final_answer[:300] + "…") if final_answer and len(final_answer) > 300 else (final_answer or "(empty)"))
-    await _update_status(url, request_id, "completed", final_answer=final_answer)
+    await _update_status(env, request_id, "completed", final_answer=final_answer)
     return QueryResponse(request_id=str(request_id), status="completed", final_answer=final_answer)
 
 
-async def _update_status(url: str, request_id, status: str, final_answer: str | None = None, error_message: str | None = None):
-    conn = await asyncpg.connect(url)
+async def _update_status(env: dict, request_id, status: str, final_answer: str | None = None, error_message: str | None = None):
+    conn = await open_app_db_connection(env)
     try:
         await update_request_final(conn, request_id, status, final_answer=final_answer, error_message=error_message)
     finally:
         await conn.close()
 
 
-async def _run_query_background(request_id: uuid.UUID, query: str, config, url: str):
+async def _run_query_background(request_id: uuid.UUID, query: str, config, env: dict):
     """Run plan step-by-step, saving after each step so the UI can poll and show live progress."""
     try:
         plan = build_plan(query, config)
         for i, s in enumerate(plan.steps, 1):
             log.info("PLAN step %s → %s: %s", i, s.agent_name, (s.task_description[:80] + "…") if len(s.task_description) > 80 else s.task_description)
-        conn = await asyncpg.connect(url)
+        conn = await open_app_db_connection(env)
         try:
             await save_plan(conn, request_id, plan)
         finally:
@@ -572,7 +560,7 @@ async def _run_query_background(request_id: uuid.UUID, query: str, config, url: 
             context = "\n".join(context_parts)
             sr = await run_step(step, context, config)
             step_results.append(sr)
-            conn = await asyncpg.connect(url)
+            conn = await open_app_db_connection(env)
             try:
                 await save_step_result(
                     conn,
@@ -590,10 +578,10 @@ async def _run_query_background(request_id: uuid.UUID, query: str, config, url: 
 
         final_answer = synthesize_final_answer(query, step_results)
         log.info("FINAL ANSWER: %s", (final_answer[:300] + "…") if final_answer and len(final_answer) > 300 else (final_answer or "(empty)"))
-        await _update_status(url, request_id, "completed", final_answer=final_answer)
+        await _update_status(env, request_id, "completed", final_answer=final_answer)
     except Exception as e:
         log.exception("Background query failed")
-        await _update_status(url, request_id, "failed", error_message=str(e))
+        await _update_status(env, request_id, "failed", error_message=str(e))
 
 
 @app.post("/query/async")
@@ -603,20 +591,16 @@ async def query_async(req: QueryRequest):
     domain_id = req.domain_id or config.domain_id
     env = dict(os.environ)
     try:
-        url = get_app_db_url(env)
-    except ValueError:
-        url = os.getenv("POSTGRES_APP_URL", "").replace("postgresql+asyncpg://", "postgresql://")
-    if not url:
-        raise HTTPException(status_code=500, detail="POSTGRES_APP_URL not set")
-
-    conn = await asyncpg.connect(url)
+        conn = await open_app_db_connection(env)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     try:
         request_id = await create_request(conn, domain_id, req.query, req.session_id)
     finally:
         await conn.close()
 
     log.info("QUERY (async): %s", (req.query[:200] + "…") if len(req.query) > 200 else req.query)
-    asyncio.create_task(_run_query_background(request_id, req.query, config, url))
+    asyncio.create_task(_run_query_background(request_id, req.query, config, env))
     return JSONResponse(status_code=202, content={"request_id": str(request_id)})
 
 

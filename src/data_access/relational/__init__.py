@@ -1,3 +1,3 @@
-from src.data_access.relational.postgres import create_engine, get_session, get_engine
-
-__all__ = ["create_engine", "get_session", "get_engine"]
+# Relational DB access: app DB uses src.data_access.app_db (SQLite).
+# Connected DBs for tools use paths passed to tools (e.g. query_facts with SQLite path).
+__all__ = []

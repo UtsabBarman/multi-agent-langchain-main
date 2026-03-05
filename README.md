@@ -11,7 +11,7 @@ A **lightweight Python package** for a config-driven multi-agent network: one **
 | **`python scripts/startup.py`** | Starts the orchestrator + all agents (ports from config). Logs query, plan, and each agent call in the terminal. Prints the **Orchestrator UI** URL (e.g. http://127.0.0.1:8000/)—open it in a browser to use the chat interface with live plan and agent iframes. |
 | **`python scripts/query_cli.py "Your question"`** | Sends a sync query, prints step-by-step agent iteration and final answer. Use `--trace` to see URLs and request/response bodies. |
 
-One-time setup: create a Postgres DB, copy `config/env/.env.example` to `config/env/.env` (or `.env` at project root), set `POSTGRES_APP_URL` and `OPENAI_API_KEY`, then run **`python scripts/migrate.py`** once.
+One-time setup: copy `config/env/.env.example` to `config/env/.env` (or `.env` at project root), set `SQLITE_APP_PATH` and `OPENAI_API_KEY`, then run **`python scripts/migrate.py`** once to create the app SQLite DB.
 
 ---
 
@@ -25,11 +25,10 @@ pip install -e .
 
 # 2. Config
 cp config/env/.env.example config/env/.env   # or copy to .env at project root
-# Set POSTGRES_APP_URL, OPENAI_API_KEY (and optionally CHROMA_PATH, POSTGRES_* for tools)
+# Set SQLITE_APP_PATH, OPENAI_API_KEY (and optionally CHROMA_PATH, SQLITE_* for tools)
 
 # 3. DB (once)
-# Create a Postgres database, then:
-PYTHONPATH=. python scripts/migrate.py
+PYTHONPATH=. python scripts/migrate.py   # creates app SQLite DB at SQLITE_APP_PATH
 
 # 4. Run
 # Terminal 1 – start network
@@ -47,7 +46,7 @@ You’ll see the query, plan, each `→ agent` / `← agent` line, and the final
 
 ## What’s in the box
 
-- **Orchestrator** (FastAPI): receives a query → plans steps (LLM) → calls agents over HTTP → persists requests/plans/step_results in Postgres → synthesizes final answer. Serves a **web UI** at `GET /` (chat + agent iframes) and supports **sync** (`POST /query`) and **async** (`POST /query/async` + poll `GET /request/{request_id}`) flows.
+- **Orchestrator** (FastAPI): receives a query → plans steps (LLM) → calls agents over HTTP → persists requests/plans/step_results in SQLite → synthesizes final answer. Serves a **web UI** at `GET /` (chat + agent iframes) and supports **sync** (`POST /query`) and **async** (`POST /query/async` + poll `GET /request/{request_id}`) flows.
 - **Agents** (FastAPI, one process per agent): LangChain agents with system prompt, guardrails, and tools (e.g. `query_facts`, `search_docs`). Each agent exposes `POST /invoke`, `GET /` (simple task/result UI), and `GET /last`. Ports and config come from a domain JSON file.
 - **Config**: one JSON per domain (orchestrator + agents + data_sources) and one `.env`. No code changes for new use cases—edit config only.
 
@@ -75,7 +74,7 @@ Detailed flow of how a query becomes a final answer. Arrows show direction and c
 | ③ | Agent → Orchestrator | HTTP 200 with `{ result, status, latency_ms }` |
 | ④ | Orchestrator → User/CLI | Response with `{ request_id, status, final_answer }` |
 
-Agents run in separate processes (one per port). The orchestrator calls them over HTTP in the order of the plan; each agent may use its tools (Postgres, Chroma) before returning. The orchestrator then synthesizes the final answer from all step results and returns it to the client.
+Agents run in separate processes (one per port). The orchestrator calls them over HTTP in the order of the plan; each agent may use its tools (SQLite, Chroma) before returning. The orchestrator then synthesizes the final answer from all step results and returns it to the client.
 
 ---
 
@@ -90,7 +89,7 @@ multi-agent-langchain/
 ├── migrations/versions/     # SQL: app.requests, app.plans, app.step_results
 ├── src/
 │   ├── core/                # Config loader, contracts, exceptions
-│   ├── data_access/         # Postgres + Chroma clients (relational/, vector/)
+│   ├── data_access/         # SQLite + Chroma clients (app_db/, vector/)
 │   ├── tools/               # query_facts, search_docs (rel_db/, vector/)
 │   ├── agent/               # Agent FastAPI (POST /invoke, GET /, GET /last)
 │   ├── orchestrator/        # Planner, executor, reporter, session; FastAPI (/, /query, /query/async, /request/{id})
@@ -112,7 +111,7 @@ multi-agent-langchain/
 
 | Command | Description |
 |--------|--------------|
-| `PYTHONPATH=. python scripts/migrate.py` | Run DB migration once (needs `POSTGRES_APP_URL`). |
+| `PYTHONPATH=. python scripts/migrate.py` | Run DB migration once (needs `SQLITE_APP_PATH`). |
 | `PYTHONPATH=. python scripts/startup.py` | Start orchestrator + agents. Prints Orchestrator UI URL (e.g. http://127.0.0.1:8000/). Options: `--no-kill`, `--background`, `--list-ports`, `--config <path>`. |
 | `PYTHONPATH=. python scripts/query_cli.py "question"` | Send query (sync); prints request_id, steps, final answer. |
 | `PYTHONPATH=. python scripts/query_cli.py "question" --trace` | Same + full URL and request/response for each HTTP call. |
@@ -125,7 +124,7 @@ From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 ## Configuration
 
 - **Domain JSON** (`config/domains/<id>.json`): `domain_id`, `orchestrator` (name, port, system_prompt, guardrails, tool_names), `agents[]`, `data_sources[]`, `env_file_path`.
-- **.env** (path in JSON): `POSTGRES_APP_URL` (required), `OPENAI_API_KEY` (required), `CHROMA_PATH`, `POSTGRES_*` for tools.
+- **.env** (path in JSON): `SQLITE_APP_PATH` (required), `OPENAI_API_KEY` (required), `CHROMA_PATH`, `SQLITE_*` for tools.
 
 ---
 
@@ -165,10 +164,10 @@ To support a new domain (e.g. HR, support, internal docs):
    - `orchestrator`: `name`, `port`, `system_prompt`, `guardrails`, `tool_names` (orchestrator usually has `tool_names: []`)
    - `agents`: list of agents; each has `name`, `port`, `system_prompt`, `guardrails`, `tool_names`
    - `data_sources`: list of `{ "id", "type", "engine", "connection_id" }`; for Chroma add `"collection_name"`
-   - `session_store`: `{ "type": "postgres", "connection_id": "POSTGRES_APP_URL" }`
+   - `session_store`: `{ "type": "sqlite", "connection_id": "SQLITE_APP_PATH" }`
 
 2. **Environment**  
-   Use the same `.env` or a new one (e.g. `config/env/hr.env`) and set `env_file_path` in the JSON. Ensure `POSTGRES_APP_URL`, `OPENAI_API_KEY`, and any `connection_id` env vars used in `data_sources` are set.
+   Use the same `.env` or a new one (e.g. `config/env/hr.env`) and set `env_file_path` in the JSON. Ensure `SQLITE_APP_PATH`, `OPENAI_API_KEY`, and any `connection_id` env vars used in `data_sources` are set.
 
 3. **Run with that domain**  
    ```bash
@@ -237,7 +236,7 @@ To tailor the package to a concrete use case (e.g. “HR policy answers”, “s
 
 2. **Define data sources**  
    In `data_sources`, list every DB or vector store the agents need:
-   - **Postgres**: `{ "id": "hr_db", "type": "rel_db", "engine": "postgres", "connection_id": "POSTGRES_HR_URL" }`
+   - **SQLite**: `{ "id": "hr_db", "type": "rel_db", "engine": "sqlite", "connection_id": "SQLITE_HR_PATH" }`
    - **Chroma**: `{ "id": "docs", "type": "vector_db", "engine": "chroma", "connection_id": "CHROMA_PATH", "collection_name": "hr_policies" }`  
    Set the corresponding env vars in `.env`.
 
@@ -264,7 +263,7 @@ To tailor the package to a concrete use case (e.g. “HR policy answers”, “s
 | **Language** | Python 3.11+ |
 | **API / services** | FastAPI, Uvicorn |
 | **Agents / LLM** | LangChain, LangChain-OpenAI, LangChain-Classic (tool-calling agent, AgentExecutor) |
-| **App database** | PostgreSQL (asyncpg, SQLAlchemy async) |
+| **App database** | SQLite (aiosqlite) |
 | **Vector store** | Chroma (LangChain-Chroma) |
 | **Config** | JSON (domain files), python-dotenv (.env) |
 | **CLI / scripts** | Python (startup, query_cli, listen_orchestrator, migrate) |
