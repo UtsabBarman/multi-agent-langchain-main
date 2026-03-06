@@ -40,7 +40,7 @@ PYTHONPATH=. python scripts/query_cli.py "What are the safety guidelines for pro
 
 You’ll see the query, plan, each `→ agent` / `← agent` line, and the final answer in the CLI and in the startup terminal logs.
 
-**Orchestrator Web UI:** After running `startup.py`, open the URL printed at the end (e.g. `http://127.0.0.1:8000/`) in your browser. You get a chat interface that sends queries via `POST /query/async`, shows the plan and live step progress (Researcher → Analyst → Writer), and displays each agent’s output in iframes. When the run finishes, the final reporter answer is shown in the chat.
+**Orchestrator Web UI:** After running `startup.py`, open the URL printed at the end (e.g. `http://127.0.0.1:8000/`) in your browser. You get a chat interface that uses **plan approval** (sends query to `POST /query/plan`; you can edit the plan and Submit or Cancel); on Submit it calls `POST /query/execute`; shows the plan and live step progress (Researcher → Analyst → Writer), and displays each agent’s output in iframes. When the run finishes, the final reporter answer is shown in the chat.
 
 ---
 
@@ -150,10 +150,13 @@ From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Web UI: chat + agent iframes, plan, live step progress, final answer; left panel: chat history (with delete), Doc Store & DB Store. |
+| `/` | GET | Web UI: chat + editable plan approval, agent iframes, live step progress, final answer; left panel: chat history (with delete), Doc Store & DB Store. |
 | `/health` | GET | Health check. |
-| `/query` | POST | Sync query. Body: `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. |
-| `/query/async` | POST | Async query. Body: `{ "query": "..." }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress and `final_answer`. |
+| `/query` | POST | Sync query (no approval). Body: `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. |
+| `/query/plan` | POST | Plan-only: create request, build plan, return for approval. Body: `{ "query": "..." }` → `200` + `{ "request_id", "status": "awaiting_approval", "plan": { "steps": [...] } }`. Used by the UI. |
+| `/query/execute` | POST | Execute plan (after approval). Body: `{ "request_id", "plan"? }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress. |
+| `/request/{request_id}/cancel` | POST | Cancel a request in `awaiting_approval`; sets status to `cancelled` and final_answer to a thanks message. |
+| `/query/async` | POST | Async query (no approval). Body: `{ "query": "..." }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress and `final_answer`. |
 | `/request/{request_id}` | GET | Get request state: `plan`, `step_results`, `final_answer`, `status`. |
 | `/request/{request_id}` | DELETE | Permanently delete a chat (request + plan + step_results). |
 | `/history` | GET | List recent requests for chat history panel. |

@@ -57,6 +57,8 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
 .history-item-meta .status { color: #19c37d; }
 .history-item-meta .status.failed { color: #f87171; }
 .history-item-meta .status.partial { color: #eab308; }
+.history-item-meta .status.cancelled { color: #8e8ea0; }
+.history-item-meta .status.awaiting_approval { color: #eab308; }
 .iframe-wrap { flex: 0 0 auto; min-height: 140px; height: 220px; display: flex; flex-direction: column; border-bottom: 1px solid rgba(255,255,255,0.06); transition: box-shadow 0.25s ease, height 0.2s ease; }
 .iframe-wrap:last-child { border-bottom: none; }
 .iframe-wrap.highlight { box-shadow: inset 0 0 0 2px #19c37d; }
@@ -122,6 +124,21 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
 .reporter-card details summary::-webkit-details-marker { display: none; }
 .reporter-card details summary::before { content: "▶"; font-size: 0.6rem; transition: transform 0.15s; }
 .reporter-card details[open] summary::before { transform: rotate(90deg); }
+.plan-approval-card { margin-top: 0.75rem; max-width: 85%; border-radius: 12px; overflow: hidden; border: 1px solid rgba(25,195,125,0.35); background: rgba(0,0,0,0.25); }
+.plan-approval-title { padding: 0.6rem 0.85rem; font-size: 0.8rem; font-weight: 600; color: #19c37d; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.plan-steps-edit { padding: 0.5rem 0.85rem; max-height: 280px; overflow-y: auto; }
+.plan-step-edit { margin-bottom: 0.75rem; }
+.plan-step-edit:last-child { margin-bottom: 0.5rem; }
+.plan-step-edit label { display: block; font-size: 0.72rem; font-weight: 600; color: #a0a0b0; margin-bottom: 0.25rem; }
+.plan-step-edit textarea { width: 100%; min-height: 60px; padding: 0.5rem; background: #40414f; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; font-size: 0.85rem; resize: vertical; box-sizing: border-box; }
+.plan-step-edit textarea:focus { outline: none; border-color: #19c37d; }
+.plan-approval-buttons { padding: 0.65rem 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.plan-approval-buttons button { padding: 0.5rem 1rem; font-size: 0.85rem; border-radius: 8px; cursor: pointer; border: none; font-weight: 600; }
+.plan-approval-buttons .submit-plan { background: #19c37d; color: #fff; }
+.plan-approval-buttons .submit-plan:hover { background: #1a7f4b; }
+.plan-approval-buttons .submit-plan:disabled { opacity: 0.6; cursor: not-allowed; }
+.plan-approval-buttons .cancel-plan { background: #52525b; color: #fff; }
+.plan-approval-buttons .cancel-plan:hover { background: #3f3f46; }
 .empty-state { text-align: center; color: #8e8ea0; padding: 2rem 1rem; font-size: 0.95rem; }
 .input-wrap { padding: 1rem; background: #343541; border-top: 1px solid rgba(255,255,255,0.08); }
 .input-inner { max-width: 42rem; margin: 0 auto; display: flex; gap: 0.5rem; align-items: center; background: #40414f; border: 1px solid rgba(255,255,255,0.15); border-radius: 24px; padding: 0.6rem 1rem; }
@@ -311,31 +328,87 @@ function reloadAgentIframe(num) {
 }
 var pollIntervalMs = 700;
 var pollTimeoutMs = 120000;
-async function submit() {
-  var q = queryEl.value.trim();
-  if (!q) return;
-  queryEl.value = '';
-  activeRequestId = null;
-  historyListEl.querySelectorAll('.history-item').forEach(function(el) { el.classList.remove('active'); });
-  addUserMessage(q);
-  var prevLive = document.getElementById('live-reply');
-  if (prevLive) {
-    prevLive.id = '';
-    var prevContent = prevLive.querySelector('.content');
-    if (prevContent) prevContent.innerHTML = '<div class="bubble" style="color:#8e8ea0;">—</div>';
+function renderApprovalCard(requestId, planSteps, liveEl) {
+  var steps = planSteps || [];
+  var html = '<div class="plan-approval-card" data-request-id="' + escapeHtml(requestId) + '">';
+  html += '<div class="plan-approval-title">Review and edit the plan (optional), then Submit or Cancel.</div>';
+  html += '<div class="plan-steps-edit">';
+  for (var i = 0; i < steps.length; i++) {
+    var s = steps[i];
+    var am = getAgentMeta(s.agent_name);
+    var task = (s.task_description || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html += '<div class="plan-step-edit" data-step-index="' + (s.step_index || (i + 1)) + '" data-agent-name="' + escapeHtml(s.agent_name) + '">';
+    html += '<label>Step ' + (s.step_index || (i + 1)) + ' — ' + escapeHtml(am.label) + '</label>';
+    html += '<textarea class="plan-task-input" rows="3">' + task + '</textarea>';
+    html += '</div>';
   }
-  sendBtn.disabled = true;
-  var liveEl = addLiveReplyContainer();
-  try {
-    var r = await fetch('/query/async', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) });
+  html += '</div>';
+  html += '<div class="plan-approval-buttons"><button type="button" class="submit-plan">Submit</button><button type="button" class="cancel-plan">Cancel</button></div>';
+  html += '</div>';
+  liveEl.innerHTML = html;
+  var card = liveEl.querySelector('.plan-approval-card');
+  if (card) {
+    card.querySelector('.submit-plan').addEventListener('click', function() { onApproveSubmit(requestId, liveEl); });
+    card.querySelector('.cancel-plan').addEventListener('click', function() { onApproveCancel(requestId, liveEl); });
+  }
+}
+function collectPlanFromCard(card) {
+  var steps = [];
+  card.querySelectorAll('.plan-step-edit').forEach(function(row) {
+    var stepIndex = parseInt(row.getAttribute('data-step-index'), 10) || 0;
+    var agentName = (row.getAttribute('data-agent-name') || '').trim();
+    var taskInput = row.querySelector('.plan-task-input');
+    var taskDescription = (taskInput && taskInput.value) ? taskInput.value.trim() : '';
+    steps.push({ step_index: stepIndex, agent_name: agentName, task_description: taskDescription });
+  });
+  return { steps: steps };
+}
+function onApproveCancel(requestId, liveEl) {
+  var submitBtn = liveEl.querySelector('.submit-plan');
+  var cancelBtn = liveEl.querySelector('.cancel-plan');
+  if (submitBtn) submitBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+  fetch('/request/' + encodeURIComponent(requestId) + '/cancel', { method: 'POST' }).then(function(r) {
+    return r.json().catch(function() { return {}; });
+  }).then(function() {
+    liveEl.innerHTML = '<div class="reporter-card"><div class="reporter-label">Cancelled</div><div class="reporter-content"><p>Thanks for using the system.</p></div></div>';
+    sendBtn.disabled = false;
+    var msgDiv = liveEl.closest('.message');
+    if (msgDiv && msgDiv.id === 'live-reply') msgDiv.id = '';
+    loadHistory();
+  }).catch(function(e) {
+    liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(e.message || 'Cancel failed') + '</div></div>';
+    sendBtn.disabled = false;
+  });
+}
+function onApproveSubmit(requestId, liveEl) {
+  var card = liveEl.querySelector('.plan-approval-card');
+  if (!card) return;
+  var planPayload = collectPlanFromCard(card);
+  var submitBtn = card.querySelector('.submit-plan');
+  var cancelBtn = card.querySelector('.cancel-plan');
+  if (submitBtn) submitBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+  liveEl.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+  fetch('/query/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request_id: requestId, plan: planPayload })
+  }).then(function(r) {
     if (r.status !== 202) {
-      var err = await r.json().catch(function() { return {}; });
-      liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(err.detail || 'Request failed') + '</div></div>';
-      sendBtn.disabled = false;
+      return r.json().then(function(d) {
+        liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(d.detail || 'Execute failed') + '</div></div>';
+        sendBtn.disabled = false;
+      }).catch(function() {
+        liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">Execute failed</div></div>';
+        sendBtn.disabled = false;
+      });
       return;
     }
-    var data = await r.json();
-    var requestId = data.request_id;
+    return r.json();
+  }).then(function(data) {
+    if (!data || !data.request_id) return;
+    var reqId = data.request_id;
     var lastStepCount = 0;
     var start = Date.now();
     function poll() {
@@ -344,7 +417,7 @@ async function submit() {
         sendBtn.disabled = false;
         return;
       }
-      fetch('/request/' + requestId).then(function(tr) { return tr.json(); }).then(function(trace) {
+      fetch('/request/' + reqId).then(function(tr) { return tr.json(); }).then(function(trace) {
         renderLiveReply(trace, liveEl);
         var stepResults = trace.step_results || [];
         if (stepResults.length > lastStepCount) {
@@ -370,6 +443,46 @@ async function submit() {
       });
     }
     setTimeout(poll, pollIntervalMs);
+  }).catch(function(e) {
+    liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(e.message || 'Execute failed') + '</div></div>';
+    sendBtn.disabled = false;
+  });
+}
+async function submit() {
+  var q = queryEl.value.trim();
+  if (!q) return;
+  queryEl.value = '';
+  activeRequestId = null;
+  historyListEl.querySelectorAll('.history-item').forEach(function(el) { el.classList.remove('active'); });
+  addUserMessage(q);
+  var prevLive = document.getElementById('live-reply');
+  if (prevLive) {
+    prevLive.id = '';
+    var prevContent = prevLive.querySelector('.content');
+    if (prevContent) prevContent.innerHTML = '<div class="bubble" style="color:#8e8ea0;">—</div>';
+  }
+  sendBtn.disabled = true;
+  var liveEl = addLiveReplyContainer();
+  try {
+    var r = await fetch('/query/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) });
+    var data = await r.json().catch(function() { return {}; });
+    if (r.status !== 200) {
+      liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(data.detail || data.error || 'Request failed') + '</div></div>';
+      sendBtn.disabled = false;
+      return;
+    }
+    var requestId = data.request_id;
+    if (data.status === 'completed' && data.final_answer) {
+      liveEl.innerHTML = '<div class="reporter-card"><div class="reporter-label">Orchestrator</div><div class="reporter-content">' + sanitizeHtml(data.final_answer) + '</div></div>';
+      var msgDiv = liveEl.closest('.message');
+      if (msgDiv && msgDiv.id === 'live-reply') msgDiv.id = '';
+      sendBtn.disabled = false;
+      loadHistory();
+      return;
+    }
+    var planSteps = (data.plan && data.plan.steps) ? data.plan.steps : [];
+    renderApprovalCard(requestId, planSteps, liveEl);
+    sendBtn.disabled = false;
   } catch (e) {
     liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(e.message || 'Request failed') + '</div></div>';
     sendBtn.disabled = false;
@@ -398,7 +511,11 @@ function renderHistoryItem(item) {
   div.dataset.requestId = item.id;
   var queryShort = (item.query || '').slice(0, 120);
   if ((item.query || '').length > 120) queryShort += '…';
-  var statusCls = item.status === 'completed' ? 'status' : (item.status === 'failed' ? 'status failed' : 'status partial');
+  var statusCls = 'status';
+  if (item.status === 'failed') statusCls += ' failed';
+  else if (item.status === 'partial') statusCls += ' partial';
+  else if (item.status === 'cancelled') statusCls += ' cancelled';
+  else if (item.status === 'awaiting_approval') statusCls += ' awaiting_approval';
   var timeStr = item.created_at ? (item.created_at.slice(0, 19).replace('T', ' ') || item.created_at) : '';
   var deleteSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
   div.innerHTML = '<div class="history-item-body"><div class="history-item-query">' + escapeHtml(queryShort) + '</div><div class="history-item-meta"><span class="' + statusCls + '">' + escapeHtml(item.status) + '</span>' + (timeStr ? ' · ' + escapeHtml(timeStr) : '') + '</div></div><button type="button" class="history-item-delete" title="Delete conversation" aria-label="Delete">' + deleteSvg + '</button>';
@@ -429,8 +546,21 @@ function loadConversation(requestId) {
     userDiv.innerHTML = '<span class="avatar">U</span><div class="content"><div class="bubble">' + escapeHtml(trace.query || '') + '</div></div>';
     messagesEl.appendChild(userDiv);
     var asstDiv = document.createElement('div');
-    asstDiv.className = 'message assistant' + (trace.status !== 'completed' ? ' error' : '');
+    asstDiv.className = 'message assistant' + (trace.status !== 'completed' && trace.status !== 'cancelled' ? ' error' : '');
     var ans = trace.final_answer != null ? trace.final_answer : (trace.error_message || '');
+    if (trace.status === 'awaiting_approval') {
+      ans = 'Plan is awaiting your approval. (Open this conversation from a new message to submit or cancel.)';
+      var planSteps = (trace.plan && trace.plan.steps) ? trace.plan.steps : [];
+      if (planSteps.length) {
+        ans += '<br><br><strong>Plan:</strong><ul>';
+        for (var i = 0; i < planSteps.length; i++) {
+          var s = planSteps[i];
+          var am = getAgentMeta(s.agent_name);
+          ans += '<li>Step ' + (s.step_index || (i + 1)) + ' — ' + escapeHtml(am.label) + ': ' + escapeHtml((s.task_description || '').slice(0, 80)) + (s.task_description && s.task_description.length > 80 ? '…' : '') + '</li>';
+        }
+        ans += '</ul>';
+      }
+    }
     asstDiv.innerHTML = '<span class="avatar">O</span><div class="content"><div class="bubble">' + sanitizeHtml(ans) + '</div></div>';
     messagesEl.appendChild(asstDiv);
     chatEl.scrollTop = chatEl.scrollHeight;

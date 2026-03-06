@@ -57,6 +57,16 @@ async def save_plan(conn: AppDbConnection, request_id: uuid.UUID, plan: Plan) ->
     )
 
 
+async def update_plan(conn: AppDbConnection, request_id: uuid.UUID, plan: Plan) -> None:
+    """Update the stored plan for a request (e.g. after user edits)."""
+    steps_json = json.dumps([s.model_dump() for s in plan.steps])
+    await conn.execute(
+        f"UPDATE {conn.plans_table} SET steps = $1::jsonb WHERE request_id = $2",
+        steps_json,
+        request_id,
+    )
+
+
 async def save_step_result(
     conn: AppDbConnection,
     request_id: uuid.UUID,

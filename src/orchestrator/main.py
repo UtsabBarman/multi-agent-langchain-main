@@ -22,13 +22,19 @@ from fastapi.responses import HTMLResponse
 from starlette.responses import JSONResponse
 
 from src.core.config.loader import load_domain_config
-from src.core.contracts.gateway import QueryRequest, QueryResponse
-from src.core.contracts.orchestrator import Plan, StepResult
+from src.core.contracts.gateway import (
+    QueryRequest,
+    QueryResponse,
+    PlanOnlyResponse,
+    ExecuteRequest,
+)
+from src.core.contracts.orchestrator import Plan, Step, StepResult
 from src.data_access.app_db import open_app_db_connection
 from src.orchestrator.session import (
     create_request,
     update_request_final,
     save_plan,
+    update_plan,
     save_step_result,
     get_request,
     get_plan,
@@ -38,6 +44,7 @@ from src.orchestrator.session import (
     delete_request,
 )
 from src.orchestrator.planner import build_plan
+from src.orchestrator.classifier import classify_query
 from src.orchestrator.executor import run_plan, run_step
 from src.orchestrator.reporter import synthesize_final_answer
 from src.orchestrator.api import doc_db_router
@@ -257,6 +264,158 @@ async def query(req: QueryRequest):
     log.info("FINAL ANSWER: %s", (final_answer[:300] + "…") if final_answer and len(final_answer) > 300 else (final_answer or "(empty)"))
     await _update_status(env, request_id, "completed", final_answer=final_answer)
     return QueryResponse(request_id=str(request_id), status="completed", final_answer=final_answer)
+
+
+@app.post("/query/plan", response_model=PlanOnlyResponse)
+async def query_plan(req: QueryRequest):
+    """Create a request. If the query is a greeting/simple chat, return a short reply; else build plan for user approval."""
+    config = get_config()
+    domain_id = req.domain_id or config.domain_id
+    env = dict(os.environ)
+    log.info("QUERY (plan only): %s", (req.query[:200] + "…") if len(req.query) > 200 else req.query)
+    try:
+        conn = await open_app_db_connection(env)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    try:
+        request_id = await create_request(conn, domain_id, req.query, req.session_id)
+    finally:
+        await conn.close()
+
+    try:
+        needs_plan, simple_reply = classify_query(req.query)
+    except Exception as e:
+        log.warning("Classifier failed, defaulting to plan: %s", e)
+        needs_plan, simple_reply = True, ""
+
+    if not needs_plan and simple_reply:
+        log.info("Simple reply (no plan): %s", (simple_reply[:80] + "…") if len(simple_reply) > 80 else simple_reply)
+        conn = await open_app_db_connection(env)
+        try:
+            await save_plan(conn, request_id, Plan(steps=[]))
+        finally:
+            await conn.close()
+        await _update_status(env, request_id, "completed", final_answer=simple_reply)
+        return PlanOnlyResponse(
+            request_id=str(request_id),
+            status="completed",
+            plan={"steps": []},
+            final_answer=simple_reply,
+        )
+
+    try:
+        plan = build_plan(req.query, config)
+    except Exception as e:
+        log.exception("Plan failed")
+        await _update_status(env, request_id, "failed", error_message=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    for i, s in enumerate(plan.steps, 1):
+        log.info("PLAN step %s → %s: %s", i, s.agent_name, (s.task_description[:80] + "…") if len(s.task_description) > 80 else s.task_description)
+    conn = await open_app_db_connection(env)
+    try:
+        await save_plan(conn, request_id, plan)
+    finally:
+        await conn.close()
+    await _update_status(env, request_id, "awaiting_approval")
+    steps_payload = [s.model_dump() for s in plan.steps]
+    return PlanOnlyResponse(request_id=str(request_id), status="awaiting_approval", plan={"steps": steps_payload})
+
+
+def _validate_plan_steps(plan_payload: list, config) -> Plan:
+    """Convert and validate plan payload; raise ValueError if invalid."""
+    valid_agents = {a.name for a in config.agents}
+    steps = []
+    for s in plan_payload or []:
+        if not isinstance(s, dict):
+            continue
+        step_index = s.get("step_index")
+        agent_name = (s.get("agent_name") or "").strip()
+        task_description = (s.get("task_description") or "").strip()
+        if agent_name not in valid_agents:
+            raise ValueError(f"Unknown agent: {agent_name}")
+        steps.append(Step(step_index=step_index or 0, agent_name=agent_name, task_description=task_description))
+    return Plan(steps=steps)
+
+
+async def _run_execute_only(request_id: uuid.UUID, query: str, plan: Plan, config, env: dict):
+    """Run plan execution and reporter only (no planning). Saves step results and final answer."""
+    try:
+        step_results = await run_plan(plan, query, config)
+        conn = await open_app_db_connection(env)
+        try:
+            step_by_idx = {s.step_index: s for s in plan.steps}
+            for sr in step_results:
+                step = step_by_idx.get(sr.step_index)
+                task_desc = step.task_description if step else ""
+                await save_step_result(
+                    conn,
+                    request_id,
+                    sr.step_index,
+                    sr.agent_name,
+                    {"task": task_desc},
+                    sr.output,
+                    sr.status,
+                    sr.latency_ms,
+                )
+        finally:
+            await conn.close()
+        final_answer = synthesize_final_answer(query, step_results)
+        log.info("FINAL ANSWER: %s", (final_answer[:300] + "…") if final_answer and len(final_answer) > 300 else (final_answer or "(empty)"))
+        await _update_status(env, request_id, "completed", final_answer=final_answer)
+    except Exception as e:
+        log.exception("Execute failed")
+        await _update_status(env, request_id, "failed", error_message=str(e))
+
+
+@app.post("/query/execute")
+async def query_execute(body: ExecuteRequest):
+    """Execute the plan for a request (optionally with user-edited plan). Returns 202 + request_id; poll GET /request/{id} for progress."""
+    config = get_config()
+    env = dict(os.environ)
+    try:
+        rid = uuid.UUID(body.request_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid request_id")
+    conn = await open_app_db_connection(env)
+    try:
+        req = await get_request(conn, rid)
+        if not req:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if req["status"] != "awaiting_approval":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Request not in awaiting_approval status (current: {req['status']}). Submit or cancel only once.",
+            )
+        plan = await get_plan(conn, rid)
+        if not plan or not plan.steps:
+            raise HTTPException(status_code=400, detail="No plan found for this request")
+        if body.plan is not None and body.plan.steps:
+            plan = _validate_plan_steps([s.model_dump() for s in body.plan.steps], config)
+            if not plan.steps:
+                raise HTTPException(status_code=400, detail="Edited plan must have at least one step")
+            await update_plan(conn, rid, plan)
+        query_text = req["query"]
+    finally:
+        await conn.close()
+    await _update_status(env, rid, "running")
+    asyncio.create_task(_run_execute_only(rid, query_text, plan, config, env))
+    return JSONResponse(status_code=202, content={"request_id": body.request_id})
+
+
+@app.post("/request/{request_id}/cancel")
+async def cancel_request(request_id: str, conn=Depends(get_app_db)):
+    """Cancel a request that is awaiting_approval. Sets status to cancelled and final_answer to a thanks message."""
+    try:
+        rid = uuid.UUID(request_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid request_id")
+    req = await get_request(conn, rid)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["status"] != "awaiting_approval":
+        raise HTTPException(status_code=409, detail=f"Cannot cancel: request status is {req['status']} (only awaiting_approval can be cancelled)")
+    await update_request_final(conn, rid, "cancelled", final_answer="Thanks for using the system.")
+    return {"ok": True, "request_id": request_id, "status": "cancelled"}
 
 
 async def _update_status(env: dict, request_id, status: str, final_answer: str | None = None, error_message: str | None = None):

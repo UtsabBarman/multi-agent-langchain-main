@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -9,6 +11,30 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     request_id: str
-    status: str  # "completed" | "failed" | "partial"
+    status: str  # "completed" | "failed" | "partial" | "cancelled"
     final_answer: str | None = None
     error: str | None = None
+
+
+class PlanStepPayload(BaseModel):
+    step_index: int
+    agent_name: str
+    task_description: str
+
+
+class PlanPayload(BaseModel):
+    steps: list[PlanStepPayload] = Field(default_factory=list)
+
+
+class PlanOnlyResponse(BaseModel):
+    """Response from POST /query/plan: request created, plan ready for user approval; or simple reply (no plan)."""
+    request_id: str
+    status: str = "awaiting_approval"  # "awaiting_approval" | "completed" (simple reply)
+    plan: dict[str, Any]  # { "steps": [ ... ] }; empty steps when status is "completed"
+    final_answer: str | None = None  # Set when status is "completed" (orchestrator answered without agents)
+
+
+class ExecuteRequest(BaseModel):
+    """Body for POST /query/execute: run the plan (optionally edited) for a request."""
+    request_id: str
+    plan: PlanPayload | None = None  # If provided, use this plan (e.g. user-edited); else use stored plan.
