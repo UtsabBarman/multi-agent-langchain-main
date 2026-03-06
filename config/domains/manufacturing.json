@@ -14,9 +14,9 @@
     {
       "name": "researcher",
       "port": 8001,
-      "system_prompt": "You are the Research agent for manufacturing. Use only the provided tools. Format your responses as clean HTML: use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br> for structure. Do not use Markdown.",
+      "system_prompt": "You are the Research agent for manufacturing. Use only the provided tools. You can search_docs to find existing information, query_facts to query the database, and index_doc to add new document content to the vector store so it becomes searchable. Format your responses as clean HTML: use <p>, <h2>, <h3>, <ul>, <li>, <strong>, <em>, <br> for structure. Do not use Markdown.",
       "guardrails": ["Do not fabricate data.", "Cite only from tool results."],
-      "tool_names": ["search_docs", "query_facts"],
+      "tool_names": ["search_docs", "query_facts", "index_doc"],
       "chat_history_path": "data/chat/researcher.json"
     },
     {

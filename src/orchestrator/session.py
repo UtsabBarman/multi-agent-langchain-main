@@ -1,23 +1,12 @@
-"""Persist and load request state (requests, plans, step_results) in app DB (Postgres or SQLite)."""
+"""Persist and load request state (requests, plans, step_results) in app DB."""
 from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Protocol
+from typing import Any
 
 from src.core.contracts.orchestrator import Plan, StepResult
-
-
-class AppDbConnection(Protocol):
-    """Connection interface used by session (execute, fetchrow, fetch + table names)."""
-    requests_table: str
-    plans_table: str
-    step_results_table: str
-
-    async def execute(self, sql: str, *params: Any) -> None: ...
-    async def fetchrow(self, sql: str, *params: Any) -> dict[str, Any] | None: ...
-    async def fetch(self, sql: str, *params: Any) -> list[dict[str, Any]]: ...
-    async def close(self) -> None: ...
+from src.data_access.app_db.base import AppDbConnectionBase as AppDbConnection
 
 
 async def create_request(
@@ -173,3 +162,55 @@ async def get_latest_request_id(
             f"SELECT id FROM {conn.requests_table} ORDER BY created_at DESC LIMIT 1",
         )
     return row["id"] if row else None
+
+
+async def delete_request(conn: AppDbConnection, request_id: uuid.UUID) -> bool:
+    """Permanently delete a request and its plan and step_results. Returns True if a row was deleted."""
+    await conn.execute(
+        f"DELETE FROM {conn.step_results_table} WHERE request_id = $1",
+        request_id,
+    )
+    await conn.execute(
+        f"DELETE FROM {conn.plans_table} WHERE request_id = $1",
+        request_id,
+    )
+    await conn.execute(
+        f"DELETE FROM {conn.requests_table} WHERE id = $1",
+        request_id,
+    )
+    return True
+
+
+async def get_recent_requests(
+    conn: AppDbConnection,
+    limit: int = 50,
+    domain_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent requests for chat history: id, query, status, final_answer, created_at."""
+    if domain_id:
+        rows = await conn.fetch(
+            f"""
+            SELECT id, query, status, final_answer, created_at
+            FROM {conn.requests_table} WHERE domain_id = $1 ORDER BY created_at DESC LIMIT $2
+            """,
+            domain_id,
+            limit,
+        )
+    else:
+        rows = await conn.fetch(
+            f"""
+            SELECT id, query, status, final_answer, created_at
+            FROM {conn.requests_table} ORDER BY created_at DESC LIMIT $1
+            """,
+            limit,
+        )
+    return [
+        {
+            "id": str(r["id"]),
+            "query": r["query"] or "",
+            "status": r["status"] or "",
+            "final_answer": (r["final_answer"] or "")[:500],
+            "created_at": (r["created_at"].isoformat() if hasattr(r.get("created_at"), "isoformat") else str(r["created_at"])) if r.get("created_at") else None,
+        }
+        for r in rows
+    ]

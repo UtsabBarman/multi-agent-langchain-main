@@ -8,6 +8,7 @@ from langchain_classic.agents import AgentExecutor
 from langchain_classic.agents.tool_calling_agent.base import create_tool_calling_agent
 from src.core.config.models import AgentConfig
 from src.agent.guardrails import apply_guardrails
+from src.agent.callbacks import ThoughtCollectorCallbackHandler
 from src.tools.registry import get_tools
 
 
@@ -16,9 +17,14 @@ def _invoke_simple_chain(llm: Any, prompt: ChatPromptTemplate, input_text: str) 
     return out.content if hasattr(out, "content") else str(out)
 
 
-def _invoke_agent_with_tools(llm: Any, tools: list, prompt: ChatPromptTemplate, input_text: str) -> str:
+def _invoke_agent_with_tools(
+    llm: Any,
+    tools: list,
+    prompt: ChatPromptTemplate,
+    input_text: str,
+    callback_handler: ThoughtCollectorCallbackHandler | None = None,
+) -> str:
     try:
-        
         agent = create_tool_calling_agent(llm, tools, prompt)
         executor = AgentExecutor(
             agent=agent,
@@ -28,9 +34,10 @@ def _invoke_agent_with_tools(llm: Any, tools: list, prompt: ChatPromptTemplate, 
             max_iterations=30,
             early_stopping_method="generate",
         )
-        out = executor.invoke(
-            {"input": input_text}
-        )
+        config: dict[str, Any] = {}
+        if callback_handler:
+            config["callbacks"] = [callback_handler]
+        out = executor.invoke({"input": input_text}, config=config)
         return out.get("output", str(out))
     except Exception:
         # Fallback: no tool loop, just LLM
@@ -47,11 +54,12 @@ def build_agent(agent_config: AgentConfig, clients: dict[str, Any]) -> Any:
         MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
     ])
 
-    def run_with_guardrails(input_text: str) -> str:
+    def run_with_guardrails(input_text: str) -> tuple[str, list[dict[str, Any]]]:
         if not tools:
             content = _invoke_simple_chain(llm, prompt, input_text)
-        else:
-            content = _invoke_agent_with_tools(llm, tools, prompt, input_text)
-        return apply_guardrails(content, agent_config.guardrails)
+            return apply_guardrails(content, agent_config.guardrails), []
+        collector = ThoughtCollectorCallbackHandler()
+        content = _invoke_agent_with_tools(llm, tools, prompt, input_text, callback_handler=collector)
+        return apply_guardrails(content, agent_config.guardrails), collector.steps
 
     return run_with_guardrails

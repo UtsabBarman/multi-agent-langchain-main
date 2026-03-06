@@ -71,17 +71,17 @@ def invoke(req: AgentInvokeRequest):
     input_text = f"{task}\n\nContext:\n{context_str}" if context_str else task
     start = time.perf_counter()
     try:
-        result = AGENT_RUNNER(input_text)
+        result, steps = AGENT_RUNNER(input_text)
         latency_ms = int((time.perf_counter() - start) * 1000)
         out_preview = (str(result)[:120] + "…") if len(str(result)) > 120 else str(result)
         log.info("SEND: %s (%s ms)", out_preview, latency_ms)
-        LAST_INVOKE = {"task": task, "result": result, "status": "success", "latency_ms": latency_ms}
-        return AgentInvokeResponse(result=result, status="success", latency_ms=latency_ms)
+        LAST_INVOKE = {"task": task, "result": result, "status": "success", "latency_ms": latency_ms, "steps": steps or []}
+        return AgentInvokeResponse(result=result, status="success", latency_ms=latency_ms, steps=steps)
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
         log.warning("SEND (failed): %s (%s ms)", e, latency_ms)
-        LAST_INVOKE = {"task": task, "result": str(e), "status": "failed", "latency_ms": latency_ms}
-        return AgentInvokeResponse(result=str(e), status="failed", latency_ms=latency_ms)
+        LAST_INVOKE = {"task": task, "result": str(e), "status": "failed", "latency_ms": latency_ms, "steps": []}
+        return AgentInvokeResponse(result=str(e), status="failed", latency_ms=latency_ms, steps=None)
 
 
 @app.get("/last")
@@ -131,6 +131,54 @@ def _agent_ui_html() -> str:
     .msg-card .msg-content a { color: #19c37d; }
     .msg-card.task .msg-label { color: #8e8ea0; }
     .msg-card.task details summary { color: #8e8ea0; }
+    /* Thought / tool-call panel */
+    .thought-panel {
+      margin-top: 0.6rem;
+      border-radius: 10px;
+      background: linear-gradient(145deg, rgba(25,195,125,0.06) 0%, rgba(0,0,0,0.2) 100%);
+      border: 1px solid rgba(25,195,125,0.2);
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .thought-panel summary {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      user-select: none;
+      transition: color 0.15s, background 0.15s;
+    }
+    .thought-panel summary:hover { color: #19c37d; background: rgba(25,195,125,0.06); }
+    .thought-panel summary::-webkit-details-marker { display: none; }
+    .thought-panel summary .thought-icon { flex-shrink: 0; opacity: 0.9; }
+    .thought-panel .thought-steps {
+      padding: 0.5rem 0.75rem 0.75rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .thought-step {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 0.8rem;
+    }
+    .thought-step:last-child { border-bottom: none; }
+    .thought-step .step-icon { flex-shrink: 0; margin-top: 0.15rem; }
+    .thought-step .step-body { flex: 1; min-width: 0; }
+    .thought-step .step-name { font-weight: 600; color: #19c37d; }
+    .thought-step .step-in, .thought-step .step-out {
+      margin-top: 0.25rem; font-size: 0.75rem; color: #9ca3af;
+      white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, monospace;
+    }
+    .thought-step.tool-end .step-out { color: #a7f3d0; }
+    .thought-step.tool-error .step-out { color: #f87171; }
+    .thought-step.tool-error .step-name { color: #f87171; }
   </style>
 </head>
 <body>
@@ -167,9 +215,30 @@ def _agent_ui_html() -> str:
     var agentCls = """ + repr(avatar_cls) + """;
     var agentLabel = """ + repr(display_name) + """;
     var lastData = null;
+    var iconsThought = '<svg class="thought-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+    var iconsTool = '<svg class="step-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+    var iconsCheck = '<svg class="step-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
+    var iconsError = '<svg class="step-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>';
+    function renderThoughtSteps(steps) {
+      if (!steps || steps.length === 0) return '';
+      var html = '<details class="thought-panel" open><summary><span class="thought-icon">' + iconsThought + '</span>Tool calls (' + steps.length + ' step' + (steps.length !== 1 ? 's' : '') + ')</summary><div class="thought-steps">';
+      for (var i = 0; i < steps.length; i++) {
+        var s = steps[i];
+        if (s.type === 'tool_start') {
+          html += '<div class="thought-step"><span class="step-icon">' + iconsTool + '</span><div class="step-body"><span class="step-name">' + escapeHtml(s.name) + '</span>' + (s.input ? '<div class="step-in">' + escapeHtml(s.input) + '</div>' : '') + '</div></div>';
+        } else if (s.type === 'tool_end') {
+          html += '<div class="thought-step tool-end"><span class="step-icon">' + iconsCheck + '</span><div class="step-body"><span class="step-name">' + escapeHtml(s.name) + ' →</span><div class="step-out">' + escapeHtml(s.output) + '</div></div></div>';
+        } else if (s.type === 'tool_error') {
+          html += '<div class="thought-step tool-error"><span class="step-icon">' + iconsError + '</span><div class="step-body"><span class="step-name">' + escapeHtml(s.name) + '</span><div class="step-out">' + escapeHtml(s.error || '') + '</div></div></div>';
+        }
+      }
+      html += '</div></details>';
+      return html;
+    }
     function render() {
       fetch('/last').then(r => r.json()).then(data => {
-        var same = lastData && lastData.task === data.task && String(lastData.result) === String(data.result) && (lastData.latency_ms || 0) === (data.latency_ms || 0);
+        var stepsStr = (data.steps && data.steps.length) ? JSON.stringify(data.steps) : '';
+        var same = lastData && lastData.task === data.task && String(lastData.result) === String(data.result) && (lastData.latency_ms || 0) === (data.latency_ms || 0) && (lastData.steps ? JSON.stringify(lastData.steps) : '') === stepsStr;
         if (same) return;
         lastData = data;
         const el = document.getElementById('chat');
@@ -184,7 +253,8 @@ def _agent_ui_html() -> str:
         if (data.result != null) {
           var responseOpen = wasResponseOpen ? ' open' : '';
           var resultContent = sanitizeHtml(data.result) + (data.latency_ms ? '<div class="meta">' + data.latency_ms + ' ms</div>' : '');
-          html += '<div class="msg-card"><div class="msg-label"><span class="avatar ' + agentCls + '" title="' + agentLabel + '">' + agentLetter + '</span>' + agentLabel + ' · Response</div><details id="details-response"' + responseOpen + '><summary>Show in chat</summary><div class="msg-content">' + resultContent + '</div></details></div>';
+          var thoughtHtml = (data.steps && data.steps.length) ? renderThoughtSteps(data.steps) : '';
+          html += '<div class="msg-card"><div class="msg-label"><span class="avatar ' + agentCls + '" title="' + agentLabel + '">' + agentLetter + '</span>' + agentLabel + ' · Response</div><details id="details-response"' + responseOpen + '><summary>Show in chat</summary><div class="msg-content">' + resultContent + thoughtHtml + '</div></details></div>';
         }
         el.innerHTML = html || '<p class="empty">Waiting for tasks…</p>';
       }).catch(() => { document.getElementById('chat').innerHTML = '<p class="empty">Could not load last task.</p>'; });

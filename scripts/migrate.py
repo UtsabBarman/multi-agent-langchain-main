@@ -10,13 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dotenv import load_dotenv
+from src.core.config.env import ensure_project_env
 
-for p in [ROOT / "config" / "env" / ".env", ROOT / ".env"]:
-    if p.exists():
-        load_dotenv(p)
-        break
-
+ensure_project_env(ROOT)
 env = dict(os.environ)
 
 

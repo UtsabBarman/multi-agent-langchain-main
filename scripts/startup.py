@@ -22,14 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dotenv import load_dotenv
-
-for p in [ROOT / "config" / "env" / ".env", ROOT / ".env"]:
-    if p.exists():
-        load_dotenv(p)
-        break
-
+from src.core.config.env import ensure_project_env
 from src.core.config.loader import load_domain_config
+
+ensure_project_env(ROOT)
 
 PID_FILE = ROOT / "scripts" / ".startup_pids"
 

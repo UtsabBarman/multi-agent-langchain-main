@@ -86,24 +86,40 @@ multi-agent-langchain/
 │   ├── domains/             # Domain JSON (e.g. manufacturing.json)
 │   └── env/                 # .env and .env.example (secrets)
 ├── data/                    # Optional data (e.g. chat state, chroma)
-├── migrations/versions/     # SQL: app.requests, app.plans, app.step_results
+├── migrations/versions/     # SQL: app_requests, app_plans, app_step_results (SQLite)
 ├── src/
-│   ├── core/                # Config loader, contracts, exceptions
-│   ├── data_access/         # SQLite + Chroma clients (app_db/, vector/)
-│   ├── tools/               # query_facts, search_docs (rel_db/, vector/)
-│   ├── agent/               # Agent FastAPI (POST /invoke, GET /, GET /last)
-│   ├── orchestrator/        # Planner, executor, reporter, session; FastAPI (/, /query, /query/async, /request/{id})
+│   ├── core/                # Config loader, models, contracts, exceptions, env (ensure_project_env)
+│   ├── data_access/         # App DB (app_db/), vector (chroma, indexing), factory (build_clients)
+│   ├── tools/               # Registry (dict of tool factories), rel_db/, vector/ (search, index_doc)
+│   ├── agent/               # FastAPI: POST /invoke, GET /, GET /last; worker, callbacks, guardrails
+│   ├── orchestrator/        # FastAPI (/, /query, /query/async, /request/{id}, /history, DELETE /request/{id})
+│   │   ├── api/             # Doc Store & DB Store routes (/api/doc/*, /api/db/*)
+│   │   ├── templates/       # orchestrator.html (chat UI template)
+│   │   ├── session.py       # Request/plan/step_results persistence (uses app_db)
+│   │   ├── deps.py          # get_config, get_app_db (FastAPI dependency)
+│   │   ├── planner.py       # LLM plan from query + agent list
+│   │   ├── executor.py     # Run plan via HTTP to agents
+│   │   └── reporter.py      # Synthesize final answer from step results
 │   └── gateway/             # Optional reverse proxy
 ├── scripts/
 │   ├── startup.py           # Start orchestrator + all agents (prints UI URL)
 │   ├── query_cli.py         # Send query via CLI, print steps + answer
-│   ├── listen_orchestrator.py # Poll GET /trace/last and print latest request
-│   └── migrate.py           # Run DB migration (once)
-├── tests/                   # Unit and integration tests
+│   ├── migrate.py           # Run SQLite migration (once)
+│   └── test_sqlite_setup.py # Verify app DB and tool wiring
+├── tests/
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
 ```
+
+**Modularity**
+
+- **Env**: All entrypoints (orchestrator, scripts) use `src.core.config.env.ensure_project_env(project_root)` so `.env` is loaded from `config/env/.env` or `.env` in one place.
+- **App DB**: A single connection protocol lives in `data_access.app_db.base`; session and backends use it. Routes that need the DB use the `get_app_db` FastAPI dependency (no repeated open/close boilerplate).
+- **Chroma indexing**: Shared logic in `data_access.vector.indexing` (`index_text_to_chroma`) is used by the `index_doc` tool and by the Doc Store upload API.
+- **Doc/DB Store API**: Handlers for `/api/doc/*` and `/api/db/*` live in `orchestrator.api.doc_db` and are mounted under `/api`.
+- **Orchestrator UI**: The chat UI is in `orchestrator/templates/orchestrator.html`; Python only injects iframes HTML, iframe src script, and agent meta JSON.
+- **Tools**: New tools are registered by adding a factory to the `_TOOL_FACTORIES` dict in `src/tools/registry.py`; each factory receives `clients` and returns a tool or `None`.
 
 ---
 
@@ -134,21 +150,28 @@ From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Web UI: chat + agent iframes, plan, live step progress, final answer. |
+| `/` | GET | Web UI: chat + agent iframes, plan, live step progress, final answer; left panel: chat history (with delete), Doc Store & DB Store. |
 | `/health` | GET | Health check. |
 | `/query` | POST | Sync query. Body: `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. |
 | `/query/async` | POST | Async query. Body: `{ "query": "..." }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress and `final_answer`. |
 | `/request/{request_id}` | GET | Get request state: `plan`, `step_results`, `final_answer`, `status`. |
-| `/trace/last` | GET | Last request trace (for `listen_orchestrator.py`). |
+| `/request/{request_id}` | DELETE | Permanently delete a chat (request + plan + step_results). |
+| `/history` | GET | List recent requests for chat history panel. |
+| `/trace/last` | GET | Last request trace (optional `?domain_id=`). |
+| `/api/doc/collections` | GET | List Chroma collections (Doc Store UI). |
+| `/api/doc/upload` | POST | Upload .txt/.md to Chroma (chunk + embed + index). |
+| `/api/db/connections` | GET | List configured DB connections (DB Store UI). |
+| `/api/db/test` | GET | Test a SQLite connection by `connection_id`. |
+| `/api/db/tables` | GET | List table names for a connection. |
 
 **Agent** (per-agent port, e.g. 8001–8003):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Simple UI: last task and result. |
+| `/` | GET | Simple UI: last task, result, and tool-call steps (thought panel). |
 | `/health` | GET | Health check. |
-| `/last` | GET | Last invoke payload and result. |
-| `/invoke` | POST | Run agent. Body: `{ "task", "context"? }` → `{ "result", "status", "latency_ms" }`. |
+| `/last` | GET | Last invoke payload, result, and `steps` (tool_start/tool_end/tool_error). |
+| `/invoke` | POST | Run agent. Body: `{ "task", "context"? }` → `{ "result", "status", "latency_ms", "steps"? }`. |
 
 ---
 
@@ -205,17 +228,17 @@ def create_my_tool(some_client):  # client comes from build_clients()
 
 **Step 2 – Register the tool**
 
-- In `src/tools/registry.py`, in `get_tools(tool_names, clients)`:
-  - For each `name` in `tool_names`, if `name == "my_tool"`, get the right client from `clients` (keyed by `data_sources[].id`), call your factory, and append the result to `result`.
-
-Example:
+- In `src/tools/registry.py`, add a factory function that takes `clients` and returns the tool or `None`, then register it in `_TOOL_FACTORIES`:
 
 ```python
-elif name == "my_tool":
+def _my_tool_factory(clients: dict[str, Any]) -> Any | None:
     client = clients.get("my_data_source_id")  # id from config data_sources
-    if client is None:
-        continue
-    result.append(create_my_tool(client))
+    return create_my_tool(client) if client else None
+
+_TOOL_FACTORIES = {
+    ...
+    "my_tool": _my_tool_factory,
+}
 ```
 
 **Step 3 – Wire config**
