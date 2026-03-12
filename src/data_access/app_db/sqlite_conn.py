@@ -39,6 +39,7 @@ async def open_sqlite_connection(env: dict[str, str]) -> AppDbConnectionBase:
         raise ValueError("SQLITE_APP_PATH or DATABASE_URL (sqlite://...) not set")
     raw = await aiosqlite.connect(path)
     raw.row_factory = aiosqlite.Row
+    await raw.execute("PRAGMA foreign_keys = ON")
     return _SQLiteConnection(raw)
 
 
@@ -48,6 +49,7 @@ class _SQLiteConnection(AppDbConnectionBase):
         self.requests_table = "app_requests"
         self.plans_table = "app_plans"
         self.step_results_table = "app_step_results"
+        self.run_events_table = "run_events"
 
     async def execute(self, sql: str, *params: Any) -> None:
         sql = _pg_to_sqlite_sql(sql)

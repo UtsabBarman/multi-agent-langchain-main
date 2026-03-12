@@ -18,16 +18,15 @@ env = dict(os.environ)
 
 async def test_app_db():
     """Test: open app DB, create request, save plan, fetch request + plan."""
+    from src.core.contracts.orchestrator import Plan, Step
     from src.data_access.app_db import open_app_db_connection
     from src.orchestrator.session import (
         create_request,
-        save_plan,
-        get_request,
         get_plan,
-        get_step_results,
+        get_request,
+        save_plan,
         update_request_final,
     )
-    from src.core.contracts.orchestrator import Plan, Step
 
     if not env.get("SQLITE_APP_PATH") and "sqlite" not in (env.get("DATABASE_URL") or "").lower():
         print("SKIP app_db: SQLITE_APP_PATH or DATABASE_URL not set")

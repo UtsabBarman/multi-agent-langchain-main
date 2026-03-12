@@ -6,6 +6,7 @@ from typing import Any
 
 from src.core.config.env import load_env_from_path
 from src.core.config.models import DomainConfig
+from src.core.exceptions import ConfigError
 from src.data_access.vector.chroma import create_chroma_retriever
 
 
@@ -17,9 +18,17 @@ def _load_env_for_config(config: DomainConfig, project_root: Path | None) -> dic
 def build_clients(
     domain_config: DomainConfig,
     project_root: Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build data access clients from domain config. Keys = data_sources[].id. SQLite + Chroma only."""
-    env = _load_env_for_config(domain_config, project_root)
+    """Build data access clients from domain config. Keys = data_sources[].id. SQLite + Chroma only.
+
+    If env is provided, use it and do not load from config's env file (for serverless/library).
+    If env is None, load env from config's env_file_path relative to project_root (default).
+    """
+    if env is not None:
+        env = dict(env)
+    else:
+        env = _load_env_for_config(domain_config, project_root)
     clients: dict[str, Any] = {}
     root = project_root or Path.cwd()
 
@@ -28,8 +37,8 @@ def build_clients(
             path = env.get(ds.connection_id, "").strip()
             if not path:
                 continue
-            path = (root / path).resolve() if not Path(path).is_absolute() else Path(path)
-            clients[ds.id] = str(path)
+            abs_path = (root / path).resolve() if not Path(path).is_absolute() else Path(path)
+            clients[ds.id] = str(abs_path)
         elif ds.type == "vector_db" and ds.engine == "chroma":
             path = env.get(ds.connection_id, "")
             if not path:
@@ -42,5 +51,9 @@ def build_clients(
             )
             clients[ds.id] = retriever
             clients[f"{ds.id}_index"] = {"path": str(abs_path), "collection_name": collection_name}
+        else:
+            raise ConfigError(
+                f"Unsupported data source '{ds.id}': type='{ds.type}', engine='{ds.engine}'."
+            )
 
     return clients

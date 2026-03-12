@@ -1,0 +1,111 @@
+# Lite stack: orchestrator + 3 agents, SQLite only. Run: docker compose up -d
+# Set OPENAI_API_KEY (and optional SQLITE_APP_PATH, SQLITE_MANUFACTURING_PATH, CHROMA_PATH) in .env or here.
+
+services:
+  migrate:
+    build: .
+    command: python scripts/migrate.py
+    environment:
+      SQLITE_APP_PATH: /data/app.sqlite
+    volumes:
+      - ./data:/data
+    restart: "no"
+
+  orchestrator:
+    build: .
+    command: python -m src.orchestrator.main
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      CONFIG_PATH: config/domains/manufacturing.json
+      PORT: 8000
+      SQLITE_APP_PATH: /data/app.sqlite
+      SQLITE_MANUFACTURING_PATH: /data/manufacturing.sqlite
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHROMA_PATH: ${CHROMA_PATH:-/data/chroma}
+      ORCHESTRATOR_AGENT_HOST_researcher: researcher
+      ORCHESTRATOR_AGENT_HOST_analyst: analyst
+      ORCHESTRATOR_AGENT_HOST_writer: writer
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  researcher:
+    build: .
+    command: python -m src.agent.main --agent-id researcher --config-path config/domains/manufacturing.json
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      CONFIG_PATH: config/domains/manufacturing.json
+      AGENT_ID: researcher
+      PORT: 8001
+      SQLITE_APP_PATH: /data/app.sqlite
+      SQLITE_MANUFACTURING_PATH: /data/manufacturing.sqlite
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHROMA_PATH: ${CHROMA_PATH:-/data/chroma}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  analyst:
+    build: .
+    command: python -m src.agent.main --agent-id analyst --config-path config/domains/manufacturing.json
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      CONFIG_PATH: config/domains/manufacturing.json
+      AGENT_ID: analyst
+      PORT: 8002
+      SQLITE_APP_PATH: /data/app.sqlite
+      SQLITE_MANUFACTURING_PATH: /data/manufacturing.sqlite
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHROMA_PATH: ${CHROMA_PATH:-/data/chroma}
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  writer:
+    build: .
+    command: python -m src.agent.main --agent-id writer --config-path config/domains/manufacturing.json
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      CONFIG_PATH: config/domains/manufacturing.json
+      AGENT_ID: writer
+      PORT: 8003
+      SQLITE_APP_PATH: /data/app.sqlite
+      SQLITE_MANUFACTURING_PATH: /data/manufacturing.sqlite
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHROMA_PATH: ${CHROMA_PATH:-/data/chroma}
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

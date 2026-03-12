@@ -60,8 +60,19 @@ def kill_port(port: int, dry_run: bool = False) -> bool:
         return True
     for pid in pids:
         try:
-            subprocess.run(["kill", "-9", str(pid)], check=True, timeout=5)
-            print(f"  Killed PID {pid} on port {port}")
+            subprocess.run(["kill", "-TERM", str(pid)], check=True, timeout=5)
+            time.sleep(0.5)
+            still_running = subprocess.run(
+                ["kill", "-0", str(pid)],
+                cwd=str(ROOT),
+                capture_output=True,
+                timeout=3,
+            ).returncode == 0
+            if still_running:
+                subprocess.run(["kill", "-KILL", str(pid)], check=True, timeout=5)
+                print(f"  Force-killed PID {pid} on port {port}")
+            else:
+                print(f"  Stopped PID {pid} on port {port}")
         except subprocess.CalledProcessError as e:
             print(f"  Warning: failed to kill PID {pid} on port {port}: {e}", file=sys.stderr)
             return False
@@ -148,7 +159,7 @@ def main():
         cwd=str(ROOT),
         env={**env, "PORT": str(config.orchestrator.port)},
         stdout=subprocess.DEVNULL if args.background else None,
-        stderr=subprocess.PIPE if args.background else None,
+        stderr=subprocess.DEVNULL if args.background else None,
     )
     processes.append(proc)
     print(f"Orchestrator started on port {config.orchestrator.port} (PID {proc.pid})")
@@ -163,7 +174,7 @@ def main():
             cwd=str(ROOT),
             env={**env, "AGENT_ID": agent.name},
             stdout=subprocess.DEVNULL if args.background else None,
-            stderr=subprocess.PIPE if args.background else None,
+            stderr=subprocess.DEVNULL if args.background else None,
         )
         processes.append(proc)
         print(f"Agent {agent.name} started on port {agent.port} (PID {proc.pid})")

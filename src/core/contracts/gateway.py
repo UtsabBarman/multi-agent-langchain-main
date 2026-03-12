@@ -38,3 +38,11 @@ class ExecuteRequest(BaseModel):
     """Body for POST /query/execute: run the plan (optionally edited) for a request."""
     request_id: str
     plan: PlanPayload | None = None  # If provided, use this plan (e.g. user-edited); else use stored plan.
+
+
+class RespondRequest(BaseModel):
+    """Body for POST /request/{id}/respond: user's response to a validation request."""
+    accepted: bool | None = None  # for confirm
+    choice_index: int | None = None  # for choice (0-based)
+    choice: str | None = None  # for choice (option value)
+    free_text: str | None = None  # for free_text

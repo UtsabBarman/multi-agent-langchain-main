@@ -123,7 +123,7 @@ def main():
             print(data["final_answer"], flush=True)
         if data.get("error"):
             print("Error:", data["error"], file=sys.stderr)
-    except httpx.ConnectError as e:
+    except httpx.ConnectError:
         print(f"Cannot reach orchestrator at {args.url}. Is it running?", file=sys.stderr)
         sys.exit(1)
     except Exception as e:

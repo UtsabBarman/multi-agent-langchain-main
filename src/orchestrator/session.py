@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Any
 
-from src.core.contracts.orchestrator import Plan, StepResult
+from src.core.contracts.orchestrator import Plan
 from src.data_access.app_db.base import AppDbConnectionBase as AppDbConnection
 
 
@@ -45,6 +45,61 @@ async def update_request_final(
         final_answer,
         error_message,
         request_id,
+    )
+
+
+async def update_request_paused(
+    conn: AppDbConnection,
+    request_id: uuid.UUID,
+    step_index: int,
+    validation_payload_json: str,
+) -> None:
+    """Set request to awaiting_user_input and store paused step + validation payload."""
+    await conn.execute(
+        f"""
+        UPDATE {conn.requests_table}
+        SET status = 'awaiting_user_input', paused_at_step = $1, validation_payload = $2, updated_at = now()
+        WHERE id = $3
+        """,
+        step_index,
+        validation_payload_json,
+        request_id,
+    )
+
+
+async def update_request_clear_paused(conn: AppDbConnection, request_id: uuid.UUID) -> None:
+    """Clear paused_at_step and validation_payload (call before resuming)."""
+    await conn.execute(
+        f"""
+        UPDATE {conn.requests_table} SET paused_at_step = NULL, validation_payload = NULL, updated_at = now()
+        WHERE id = $1
+        """,
+        request_id,
+    )
+
+
+async def update_step_result(
+    conn: AppDbConnection,
+    request_id: uuid.UUID,
+    step_index: int,
+    agent_name: str,
+    output_payload: dict | str,
+    status: str,
+    latency_ms: int | None,
+) -> None:
+    """Update existing step result row (e.g. after resume when agent completes)."""
+    out_json = json.dumps(output_payload) if isinstance(output_payload, dict) else json.dumps({"text": output_payload})
+    await conn.execute(
+        f"""
+        UPDATE {conn.step_results_table}
+        SET output_payload = $1::jsonb, status = $2, latency_ms = $3
+        WHERE request_id = $4 AND step_index = $5
+        """,
+        out_json,
+        status,
+        latency_ms,
+        request_id,
+        step_index,
     )
 
 
@@ -111,17 +166,27 @@ async def get_request(
     conn: AppDbConnection,
     request_id: uuid.UUID,
 ) -> dict[str, Any] | None:
-    """Load one request by id. Returns dict with id, domain_id, query, status, final_answer, error_message, created_at."""
-    row = await conn.fetchrow(
-        f"""
-        SELECT id, domain_id, query, status, final_answer, error_message, created_at
-        FROM {conn.requests_table} WHERE id = $1
-        """,
-        request_id,
-    )
+    """Load one request by id. Includes paused_at_step, validation_payload when present (run migration 002)."""
+    try:
+        row = await conn.fetchrow(
+            f"""
+            SELECT id, domain_id, query, status, final_answer, error_message, created_at,
+                   paused_at_step, validation_payload
+            FROM {conn.requests_table} WHERE id = $1
+            """,
+            request_id,
+        )
+    except Exception:
+        row = await conn.fetchrow(
+            f"""
+            SELECT id, domain_id, query, status, final_answer, error_message, created_at
+            FROM {conn.requests_table} WHERE id = $1
+            """,
+            request_id,
+        )
     if not row:
         return None
-    return {
+    out = {
         "id": str(row["id"]),
         "domain_id": row["domain_id"],
         "query": row["query"],
@@ -130,6 +195,14 @@ async def get_request(
         "error_message": row["error_message"],
         "created_at": (row["created_at"].isoformat() if hasattr(row.get("created_at"), "isoformat") else str(row["created_at"])) if row.get("created_at") else None,
     }
+    if "paused_at_step" in row and row["paused_at_step"] is not None:
+        out["paused_at_step"] = row["paused_at_step"]
+    if "validation_payload" in row and row["validation_payload"] is not None:
+        try:
+            out["validation_payload"] = json.loads(row["validation_payload"]) if isinstance(row["validation_payload"], str) else row["validation_payload"]
+        except (TypeError, ValueError):
+            out["validation_payload"] = None
+    return out
 
 
 async def get_step_results(
@@ -221,6 +294,64 @@ async def get_recent_requests(
             "status": r["status"] or "",
             "final_answer": (r["final_answer"] or "")[:500],
             "created_at": (r["created_at"].isoformat() if hasattr(r.get("created_at"), "isoformat") else str(r["created_at"])) if r.get("created_at") else None,
+        }
+        for r in rows
+    ]
+
+
+def _run_events_table(conn: AppDbConnection) -> str:
+    return getattr(conn, "run_events_table", "run_events")
+
+
+async def append_run_event(
+    conn: AppDbConnection,
+    run_id: str,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Append one event to run_events (observability, replay). Run migration 003 first."""
+    try:
+        table = _run_events_table(conn)
+        payload_json = json.dumps(payload) if payload else None
+        await conn.execute(
+            f"INSERT INTO {table} (run_id, event_type, payload_json) VALUES ($1, $2, $3)",
+            run_id,
+            event_type,
+            payload_json,
+        )
+    except Exception:
+        # Table may not exist if migration 003 not run; avoid breaking the main flow
+        pass
+
+
+async def get_run_events(
+    conn: AppDbConnection,
+    run_id: str,
+    since_ts: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Load run_events for a run_id, optionally after since_ts. For SSE/replay."""
+    table = _run_events_table(conn)
+    if since_ts:
+        rows = await conn.fetch(
+            f"SELECT id, run_id, ts, event_type, payload_json FROM {table} WHERE run_id = $1 AND ts > $2 ORDER BY ts LIMIT $3",
+            run_id,
+            since_ts,
+            limit,
+        )
+    else:
+        rows = await conn.fetch(
+            f"SELECT id, run_id, ts, event_type, payload_json FROM {table} WHERE run_id = $1 ORDER BY ts LIMIT $2",
+            run_id,
+            limit,
+        )
+    return [
+        {
+            "id": r["id"],
+            "run_id": r["run_id"],
+            "ts": str(r["ts"]) if r.get("ts") else None,
+            "event_type": r["event_type"],
+            "payload": json.loads(r["payload_json"]) if isinstance(r.get("payload_json"), str) and r.get("payload_json") else None,
         }
         for r in rows
     ]

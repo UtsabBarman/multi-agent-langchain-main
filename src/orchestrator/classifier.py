@@ -1,8 +1,8 @@
 """Decide whether the user query needs a multi-step plan or can be answered with a simple reply (e.g. greetings)."""
 from __future__ import annotations
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
 CLASSIFY_SYSTEM = """You are a classifier for a multi-agent assistant.
 
@@ -34,7 +34,8 @@ def classify_query(query: str) -> tuple[bool, str]:
     ])
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     out = (prompt | llm).invoke({"query": query})
-    text = (out.content if hasattr(out, "content") else str(out)).strip()
+    raw_content = out.content if hasattr(out, "content") else out
+    text = (raw_content if isinstance(raw_content, str) else str(raw_content)).strip()
     if text.upper() == "NEEDS_PLAN":
         return True, ""
     return False, text or "Hello! How can I help you today?"

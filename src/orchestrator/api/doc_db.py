@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from src.data_access.vector.indexing import index_text_to_chroma
 
 log = logging.getLogger("orchestrator.api.doc_db")
+MAX_UPLOAD_BYTES = int(os.environ.get("DOC_UPLOAD_MAX_BYTES", "5242880"))
 
 router = APIRouter()
 
@@ -34,6 +35,19 @@ def _get_configured_db_connections() -> list[dict]:
         for ds in config.data_sources
         if ds.type == "rel_db" and ds.engine == "sqlite" and ds.id != "app_db"
     ]
+
+
+def _resolve_configured_connection_path(connection_id: str) -> str:
+    allowed = {c["connection_id"] for c in _get_configured_db_connections()}
+    if connection_id not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unknown connection_id '{connection_id}'")
+    path = os.environ.get(connection_id, "").strip()
+    if not path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Connection {connection_id} not set in environment",
+        )
+    return path
 
 
 @router.get("/doc/collections")
@@ -63,9 +77,14 @@ async def upload_doc_to_chroma(
         raise HTTPException(status_code=400, detail="Only .txt and .md files are supported")
     try:
         path = _get_chroma_path()
-        content = (await file.read()).decode("utf-8", errors="replace")
+        raw = await file.read()
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_BYTES} bytes)")
+        content = raw.decode("utf-8", errors="replace")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
     if not content.strip():
@@ -87,12 +106,7 @@ async def list_db_connections():
 @router.get("/db/test")
 async def test_db_connection(connection_id: str):
     """Test connection to a configured SQLite DB by connection_id (env var name)."""
-    path = os.environ.get(connection_id, "").strip()
-    if not path:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Connection {connection_id} not set in environment",
-        )
+    path = _resolve_configured_connection_path(connection_id)
     try:
         import aiosqlite
         async with aiosqlite.connect(path) as conn:
@@ -105,12 +119,7 @@ async def test_db_connection(connection_id: str):
 @router.get("/db/tables")
 async def list_db_tables(connection_id: str):
     """List table names for a configured SQLite DB."""
-    path = os.environ.get(connection_id, "").strip()
-    if not path:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Connection {connection_id} not set in environment",
-        )
+    path = _resolve_configured_connection_path(connection_id)
     try:
         import aiosqlite
         async with aiosqlite.connect(path) as conn:

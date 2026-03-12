@@ -59,6 +59,7 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
 .history-item-meta .status.partial { color: #eab308; }
 .history-item-meta .status.cancelled { color: #8e8ea0; }
 .history-item-meta .status.awaiting_approval { color: #eab308; }
+.history-item-meta .status.awaiting_user_input { color: #eab308; }
 .iframe-wrap { flex: 0 0 auto; min-height: 140px; height: 220px; display: flex; flex-direction: column; border-bottom: 1px solid rgba(255,255,255,0.06); transition: box-shadow 0.25s ease, height 0.2s ease; }
 .iframe-wrap:last-child { border-bottom: none; }
 .iframe-wrap.highlight { box-shadow: inset 0 0 0 2px #19c37d; }
@@ -104,6 +105,16 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
 .live-progress .step-live.running .step-dot { background: rgba(25,195,125,0.3); animation: pulse 1s ease-in-out infinite; }
 .live-progress .step-live.done .step-dot { background: #19c37d; color: #fff; }
 .live-progress .step-live.pending .step-dot { background: #3f3f46; color: #71717a; }
+.validation-card { margin-top: 0.75rem; max-width: 85%; border-radius: 12px; overflow: hidden; border: 1px solid rgba(229,231,235,0.4); background: rgba(0,0,0,0.2); }
+.validation-card .validation-title { padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600; color: #8e8ea0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.validation-card .validation-message { padding: 0.65rem 0.75rem; font-size: 0.9rem; color: #e4e4e7; }
+.validation-card .validation-actions { padding: 0.5rem 0.75rem 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.validation-card button.val-btn { padding: 0.45rem 0.85rem; font-size: 0.85rem; border-radius: 8px; cursor: pointer; border: none; background: #40414f; color: #e4e4e7; }
+.validation-card button.val-btn:hover { background: #19c37d; color: #fff; }
+.validation-card button.val-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.validation-card button.val-btn.reject { background: #52525b; }
+.validation-card button.val-btn.reject:hover { background: #ef4444; }
+.validation-card input.val-input { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #40414f; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; font-size: 0.9rem; box-sizing: border-box; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .reporter-card { margin-top: 0.75rem; max-width: 85%; border-radius: 12px; padding: 0.85rem 1rem; background: rgba(25,195,125,0.08); border: 1px solid rgba(25,195,125,0.25); border-left: 4px solid #19c37d; }
 .reporter-card.error { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.3); border-left-color: #f87171; }
@@ -275,6 +286,54 @@ function addLiveReplyContainer() {
   chatEl.scrollTop = chatEl.scrollHeight;
   return contentDiv;
 }
+function renderValidationCard(trace, liveEl) {
+  var reqId = trace.request_id;
+  var val = trace.validation;
+  if (!reqId || !val || !val.message) return;
+  var msg = escapeHtml(val.message);
+  var vType = (val.validation_type || 'confirm');
+  var options = val.options;
+  var allowReject = val.allow_reject;
+  var html = '<div class="validation-card" data-request-id="' + escapeHtml(reqId) + '"><div class="validation-title">Agent needs your input</div><div class="validation-message">' + msg + '</div><div class="validation-actions">';
+  if (vType === 'choice' && options && options.length) {
+    for (var i = 0; i < options.length; i++) {
+      html += '<button type="button" class="val-btn" data-choice-index="' + i + '">' + escapeHtml(options[i]) + '</button>';
+    }
+  } else if (vType === 'free_text') {
+    html += '<input type="text" class="val-input" placeholder="Your response…"><button type="button" class="val-btn val-submit-free">Submit</button>';
+  } else {
+    html += '<button type="button" class="val-btn" data-accepted="true">Accept</button>';
+    if (allowReject) html += '<button type="button" class="val-btn reject" data-accepted="false">Reject</button>';
+  }
+  html += '</div></div>';
+  liveEl.insertAdjacentHTML('beforeend', html);
+  var card = liveEl.querySelector('.validation-card');
+  if (!card) return;
+  card.querySelectorAll('.val-btn[data-choice-index]').forEach(function(btn) {
+    btn.onclick = function() { if (btn.disabled) return; btn.disabled = true; submitValidation(reqId, { choice_index: parseInt(btn.getAttribute('data-choice-index'), 10) }, liveEl); };
+  });
+  card.querySelectorAll('.val-btn[data-accepted]').forEach(function(btn) {
+    btn.onclick = function() { if (btn.disabled) return; btn.disabled = true; submitValidation(reqId, { accepted: btn.getAttribute('data-accepted') === 'true' }, liveEl); };
+  });
+  var freeBtn = card.querySelector('.val-btn.val-submit-free');
+  var freeInput = card.querySelector('.val-input');
+  if (freeBtn && freeInput) {
+    freeBtn.onclick = function() { if (freeBtn.disabled) return; freeBtn.disabled = true; submitValidation(reqId, { free_text: freeInput.value }, liveEl); };
+  }
+}
+function submitValidation(requestId, body, liveEl) {
+  fetch('/request/' + encodeURIComponent(requestId) + '/respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r) {
+    if (!r.ok) return r.json().then(function(d) { throw new Error(d.detail || 'Submit failed'); });
+    if (liveEl) liveEl.querySelector('.validation-card') && liveEl.querySelector('.validation-card').remove();
+  }).catch(function(e) {
+    if (liveEl && liveEl.querySelector('.validation-card')) liveEl.querySelector('.validation-card').querySelectorAll('.val-btn').forEach(function(b) { b.disabled = false; });
+    console.error(e);
+  });
+}
 function renderLiveReply(trace, liveEl) {
   var planSteps = (trace.plan && trace.plan.steps) ? trace.plan.steps : [];
   var stepResults = trace.step_results || [];
@@ -320,6 +379,9 @@ function renderLiveReply(trace, liveEl) {
     }
   }
   liveEl.innerHTML = blocks;
+  if (status === 'awaiting_user_input' && trace.validation) {
+    renderValidationCard(trace, liveEl);
+  }
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 function reloadAgentIframe(num) {
@@ -429,7 +491,7 @@ function onApproveSubmit(requestId, liveEl) {
           lastStepCount = stepResults.length;
         }
         var status = trace.status || 'running';
-        if (status !== 'running' && status !== 'pending') {
+        if (status !== 'running' && status !== 'pending' && status !== 'awaiting_user_input') {
           sendBtn.disabled = false;
           var msgDiv = liveEl.closest('.message');
           if (msgDiv && msgDiv.id === 'live-reply') msgDiv.id = '';
@@ -516,6 +578,7 @@ function renderHistoryItem(item) {
   else if (item.status === 'partial') statusCls += ' partial';
   else if (item.status === 'cancelled') statusCls += ' cancelled';
   else if (item.status === 'awaiting_approval') statusCls += ' awaiting_approval';
+  else if (item.status === 'awaiting_user_input') statusCls += ' awaiting_user_input';
   var timeStr = item.created_at ? (item.created_at.slice(0, 19).replace('T', ' ') || item.created_at) : '';
   var deleteSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
   div.innerHTML = '<div class="history-item-body"><div class="history-item-query">' + escapeHtml(queryShort) + '</div><div class="history-item-meta"><span class="' + statusCls + '">' + escapeHtml(item.status) + '</span>' + (timeStr ? ' · ' + escapeHtml(timeStr) : '') + '</div></div><button type="button" class="history-item-delete" title="Delete conversation" aria-label="Delete">' + deleteSvg + '</button>';
@@ -548,6 +611,12 @@ function loadConversation(requestId) {
     var asstDiv = document.createElement('div');
     asstDiv.className = 'message assistant' + (trace.status !== 'completed' && trace.status !== 'cancelled' ? ' error' : '');
     var ans = trace.final_answer != null ? trace.final_answer : (trace.error_message || '');
+    if (trace.status === 'awaiting_user_input') {
+      ans = (trace.validation && trace.validation.message) ? 'Waiting for your input: ' + trace.validation.message : 'Waiting for your input.';
+      if (trace.validation && trace.validation.options && trace.validation.options.length) {
+        ans += ' Options: ' + trace.validation.options.join(', ');
+      }
+    }
     if (trace.status === 'awaiting_approval') {
       ans = 'Plan is awaiting your approval. (Open this conversation from a new message to submit or cancel.)';
       var planSteps = (trace.plan && trace.plan.steps) ? trace.plan.steps : [];

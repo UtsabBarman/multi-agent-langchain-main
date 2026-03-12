@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,18 +14,24 @@ from fastapi.responses import HTMLResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 
+from src.core.logging_config import configure_log_format
+
+configure_log_format()
+
+from src.agent.deps import get_agent_config, get_agent_runner, get_clients
 from src.core.config.loader import load_domain_config
+from src.core.config.models import AgentConfig
 from src.core.contracts.agent import AgentInvokeRequest, AgentInvokeResponse
-from src.agent.deps import get_agent_config, get_clients, get_agent_runner
+from src.core.contracts.protocol import artifacts_from_content_and_steps, tool_calls_from_steps
 
 app = FastAPI(title="Multi-Agent: Agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Set at startup
-DOMAIN_CONFIG = None
-AGENT_RUNNER = None
-AGENT_NAME = None
-AGENT_CONFIG = None  # AgentConfig for UI label/icon from config
+DOMAIN_CONFIG: Any = None
+AGENT_RUNNER: Any = None
+AGENT_NAME: str | None = None
+AGENT_CONFIG: AgentConfig | None = None  # AgentConfig for UI label/icon from config
 
 # Last invoke (for simple chat UI in iframe)
 LAST_INVOKE: dict | None = None
@@ -60,9 +67,12 @@ def invoke(req: AgentInvokeRequest):
     if AGENT_RUNNER is None:
         raise HTTPException(status_code=503, detail="Agent not initialized")
     log = logging.getLogger(f"agent.{AGENT_NAME}")
+    run_id = getattr(req, "run_id", None) or getattr(req, "request_id", None) or ""
+    step_id = getattr(req, "step_id", None) or ""
     task = req.task
     task_preview = (task[:120] + "…") if len(task) > 120 else task
-    log.info("RECV: %s", task_preview)
+    _log_extra = {"run_id": run_id, "agent": AGENT_NAME, "step_id": step_id}
+    log.info("RECV: %s", task_preview, extra={**_log_extra, "event_type": "invoke_start"})
     context = req.context
     if isinstance(context, dict):
         context_str = "\n".join(f"{k}: {v}" for k, v in context.items())
@@ -71,17 +81,26 @@ def invoke(req: AgentInvokeRequest):
     input_text = f"{task}\n\nContext:\n{context_str}" if context_str else task
     start = time.perf_counter()
     try:
-        result, steps = AGENT_RUNNER(input_text)
+        result, steps, validation_payload = AGENT_RUNNER(input_text)
         latency_ms = int((time.perf_counter() - start) * 1000)
-        out_preview = (str(result)[:120] + "…") if len(str(result)) > 120 else str(result)
-        log.info("SEND: %s (%s ms)", out_preview, latency_ms)
-        LAST_INVOKE = {"task": task, "result": result, "status": "success", "latency_ms": latency_ms, "steps": steps or []}
-        return AgentInvokeResponse(result=result, status="success", latency_ms=latency_ms, steps=steps)
+        content_str = result if isinstance(result, str) else str(result)
+        artifacts = artifacts_from_content_and_steps(content_str, steps or [])
+        tool_calls = tool_calls_from_steps(steps or [])
+        art_dict = artifacts.model_dump()
+        tc_dict = [t.model_dump() for t in tool_calls]
+        log.info("status=success latency_ms=%s", latency_ms, extra={**_log_extra, "event_type": "invoke_finish"})
+        if validation_payload:
+            log.info("requires_validation: %s", validation_payload.get("message", "")[:80], extra={**_log_extra, "event_type": "requires_validation"})
+            LAST_INVOKE = {"task": task, "result": result, "status": "requires_validation", "latency_ms": latency_ms, "steps": steps or [], "requires_validation": True, "validation_payload": validation_payload, "artifacts": art_dict}
+            return AgentInvokeResponse(result=result, status="requires_validation", latency_ms=latency_ms, steps=steps, requires_validation=True, validation_payload=validation_payload, artifacts=art_dict, tool_calls=tc_dict)
+        LAST_INVOKE = {"task": task, "result": result, "status": "success", "latency_ms": latency_ms, "steps": steps or [], "artifacts": art_dict}
+        return AgentInvokeResponse(result=result, status="success", latency_ms=latency_ms, steps=steps, artifacts=art_dict, tool_calls=tc_dict)
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
-        log.warning("SEND (failed): %s (%s ms)", e, latency_ms)
-        LAST_INVOKE = {"task": task, "result": str(e), "status": "failed", "latency_ms": latency_ms, "steps": []}
-        return AgentInvokeResponse(result=str(e), status="failed", latency_ms=latency_ms, steps=None)
+        log.warning("status=failed error=%s latency_ms=%s", str(e), latency_ms, extra={**_log_extra, "event_type": "invoke_finish"})
+        err_list = [{"type": "error", "message": str(e), "retryable": False}]
+        LAST_INVOKE = {"task": task, "result": str(e), "status": "failed", "latency_ms": latency_ms, "steps": [], "errors": err_list}
+        return AgentInvokeResponse(result=str(e), status="failed", latency_ms=latency_ms, steps=None, errors=err_list)
 
 
 @app.get("/last")
@@ -92,6 +111,9 @@ def get_last():
 
 def _agent_ui_html() -> str:
     # Label and icon from config (optional label, else derived from name)
+    display_name: str
+    letter: str
+    avatar_cls: str
     if AGENT_CONFIG:
         display_name = AGENT_CONFIG.get_display_label()
         letter = AGENT_CONFIG.get_icon_letter()

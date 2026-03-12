@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from src.tools.rel_db.query import create_query_facts_tool
-from src.tools.vector.search import create_search_docs_tool
+from src.tools.validation.request_user_validation import create_request_user_validation_tool
 from src.tools.vector.index_doc import create_index_doc_tool
+from src.tools.vector.search import create_search_docs_tool
 
 
 def _query_facts_factory(clients: dict[str, Any]) -> Any | None:
@@ -30,11 +31,21 @@ def _index_doc_factory(clients: dict[str, Any]) -> Any | None:
     return create_index_doc_tool(path, cfg.get("collection_name", "default"))
 
 
+def _request_user_validation_factory(clients: dict[str, Any]) -> Any | None:
+    return create_request_user_validation_tool()
+
+
 _TOOL_FACTORIES: dict[str, Callable[[dict[str, Any]], Any | None]] = {
     "query_facts": _query_facts_factory,
     "search_docs": _search_docs_factory,
     "index_doc": _index_doc_factory,
+    "request_user_validation": _request_user_validation_factory,
 }
+
+
+def get_registered_tool_names() -> set[str]:
+    """Return tool names that can be referenced in config."""
+    return set(_TOOL_FACTORIES.keys())
 
 
 def get_tools(tool_names: list[str], clients: dict[str, Any]) -> list[Any]:

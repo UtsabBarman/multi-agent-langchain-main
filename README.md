@@ -1,125 +1,215 @@
 # Multi-Agent LangChain
 
-A **lightweight Python package** for a config-driven multi-agent network: one **Orchestrator** plans and calls specialist **Agents**; you run two commands—**start** the network and **query** it.
+A config-driven multi-agent framework built with FastAPI and LangChain. An orchestrator receives a user query, plans a multi-step workflow, delegates steps to specialist agents over HTTP, lets agents use tools backed by SQLite and Chroma, and synthesizes a final HTML answer.
+
+The project can be used in three ways:
+
+- as a **web app** with a plan-approval UI
+- as a **CLI-backed local stack**
+- as a **Python library** for running config-driven multi-agent workflows from code
+
+The sample domain in this repository is **manufacturing**, but the design is meant to be adapted to other domains mostly through configuration rather than code changes.
 
 ---
 
-## Two commands
+## Overview
 
-| Command | What it does |
-|--------|----------------|
-| **`python scripts/startup.py`** | Starts the orchestrator + all agents (ports from config). Logs query, plan, and each agent call in the terminal. Prints the **Orchestrator UI** URL (e.g. http://127.0.0.1:8000/)—open it in a browser to use the chat interface with live plan and agent iframes. |
-| **`python scripts/query_cli.py "Your question"`** | Sends a sync query, prints step-by-step agent iteration and final answer. Use `--trace` to see URLs and request/response bodies. |
+### What this project gives you
 
-One-time setup: copy `config/env/.env.example` to `config/env/.env` (or `.env` at project root), set `SQLITE_APP_PATH` and `OPENAI_API_KEY`, then run **`python scripts/migrate.py`** once to create the app SQLite DB.
+- A central **Orchestrator** service that plans, validates, executes, and reports.
+- Multiple **Agent** services with role-specific prompts, guardrails, and allowed tools.
+- A **config-driven model** for defining domains, agents, tools, and data sources.
+- A built-in **web UI**, **CLI**, and **library API**.
+- Support for:
+  - step planning
+  - dependency-aware execution
+  - retries and circuit breaker behavior
+  - pause/resume for user validation
+  - persistence of requests, plans, step results, and run events
 
----
+### What it is best for
 
-## Quick start
-
-```bash
-# 1. Install
-cd multi-agent-langchain
-python3 -m venv venv && source venv/bin/activate
-pip install -e .
-
-# 2. Config
-cp config/env/.env.example config/env/.env   # or copy to .env at project root
-# Set SQLITE_APP_PATH, OPENAI_API_KEY (and optionally CHROMA_PATH, SQLITE_* for tools)
-
-# 3. DB (once)
-PYTHONPATH=. python scripts/migrate.py   # creates app SQLite DB at SQLITE_APP_PATH
-
-# 4. Run
-# Terminal 1 – start network
-PYTHONPATH=. python scripts/startup.py
-
-# Terminal 2 – send a query
-PYTHONPATH=. python scripts/query_cli.py "What are the safety guidelines for product X?"
-```
-
-You’ll see the query, plan, each `→ agent` / `← agent` line, and the final answer in the CLI and in the startup terminal logs.
-
-**Orchestrator Web UI:** After running `startup.py`, open the URL printed at the end (e.g. `http://127.0.0.1:8000/`) in your browser. You get a chat interface that uses **plan approval** (sends query to `POST /query/plan`; you can edit the plan and Submit or Cancel); on Submit it calls `POST /query/execute`; shows the plan and live step progress (Researcher → Analyst → Writer), and displays each agent’s output in iframes. When the run finishes, the final reporter answer is shown in the chat.
+- knowledge workflows that combine retrieval, structured data, and role-specific reasoning
+- domain-specific assistants that need multiple cooperating agents
+- experiments where you want to swap prompts, tools, or agents via config
+- local development first, with a path toward remote/serverless deployment
 
 ---
 
-## What’s in the box
+## Runtime Modes
 
-- **Orchestrator** (FastAPI): receives a query → plans steps (LLM) → calls agents over HTTP → persists requests/plans/step_results in SQLite → synthesizes final answer. Serves a **web UI** at `GET /` (chat + agent iframes) and supports **sync** (`POST /query`) and **async** (`POST /query/async` + poll `GET /request/{request_id}`) flows.
-- **Agents** (FastAPI, one process per agent): LangChain agents with system prompt, guardrails, and tools (e.g. `query_facts`, `search_docs`). Each agent exposes `POST /invoke`, `GET /` (simple task/result UI), and `GET /last`. Ports and config come from a domain JSON file.
-- **Config**: one JSON per domain (orchestrator + agents + data_sources) and one `.env`. No code changes for new use cases—edit config only.
+### 1. Web App
+
+The orchestrator serves a browser UI at `GET /`:
+
+- submit a query
+- preview and edit the plan
+- approve or cancel execution
+- inspect step-by-step progress
+- see each agent’s latest output in iframes
+- browse recent history
+- upload/search docs and inspect configured DBs
+
+The UI uses:
+
+- `POST /query/plan` to create a plan for review
+- `POST /query/execute` to run the approved plan
+- `POST /request/{id}/respond` to resume paused runs
+
+### 2. CLI
+
+The CLI client in `scripts/query_cli.py` is a lightweight way to run the stack locally:
+
+- sends a synchronous query to the orchestrator
+- prints request ID, plan/step trace, and final answer
+- supports `--trace` to inspect request/response payloads
+
+### 3. Library
+
+The public library API lives in `src/run.py`:
+
+- `run_query(...)` for file-based config
+- `run_query_with_config(...)` for programmatic config
+- `async_run_query_with_config(...)` for async/event-loop-safe usage
+
+Important caveat:
+
+- **Library mode still executes steps over HTTP to agent services**, so agents must be running unless you mock execution in tests.
+
+### Service responsibilities
+
+- `src/orchestrator/planner.py`
+  - asks an LLM to build a step plan
+- `src/orchestrator/plan_validation.py`
+  - validates and normalizes the plan
+- `src/orchestrator/executor.py`
+  - calls agents over HTTP with retries, timeout, and circuit breaker behavior
+- `src/orchestrator/reporter.py`
+  - creates the final response from step results
+- `src/orchestrator/session.py`
+  - persists requests, plans, step results, and run events
+- `src/agent/main.py`
+  - serves each agent API
+- `src/agent/worker.py`
+  - builds LangChain agents from config and tools
+- `src/tools/registry.py`
+  - maps tool names from config to concrete tool instances
+
+### Runtime behavior
+
+- Each run gets a `run_id` (same as `request_id` in app/API flows).
+- Each step gets a step ID like `S1`, `S2`, etc.
+- Agent HTTP execution uses:
+  - 10s connect timeout
+  - 120s read timeout
+  - exponential backoff retries
+  - in-memory circuit breaker behavior per agent
+- On startup, config is validated for:
+  - unique ports
+  - supported data source types
+  - known tools
+  - duplicate agent names
+- Set `LOG_FORMAT=json` for structured logs.
 
 ---
 
-## UI
+## Project Layout
 
-![Orchestrator chat UI with agent iframes](ui.png)
-
----
-
-## Architecture (message flow)
-
-Detailed flow of how a query becomes a final answer. Arrows show direction and content of each call.
-
-![Architecture: User → Orchestrator → Agents → Data layer → final answer](archs.png)
-
-
-**Summary**
-
-| Step | From → To | Message |
-|------|-----------|---------|
-| ① | User/CLI → Orchestrator | `POST /query` with `{ query }` |
-| ② | Orchestrator → Agent (per step) | `POST /invoke` with `{ task, context }` (context = original query + prior step results) |
-| ③ | Agent → Orchestrator | HTTP 200 with `{ result, status, latency_ms }` |
-| ④ | Orchestrator → User/CLI | Response with `{ request_id, status, final_answer }` |
-
-Agents run in separate processes (one per port). The orchestrator calls them over HTTP in the order of the plan; each agent may use its tools (SQLite, Chroma) before returning. The orchestrator then synthesizes the final answer from all step results and returns it to the client.
-
----
-
-## Project layout
-
-```
+```text
 multi-agent-langchain/
 ├── config/
 │   ├── domains/             # Domain JSON (e.g. manufacturing.json)
-│   └── env/                 # .env and .env.example (secrets)
-├── data/                    # Optional data (e.g. chat state, chroma)
-├── migrations/versions/     # SQL: app_requests, app_plans, app_step_results (SQLite)
-├── src/
-│   ├── core/                # Config loader, models, contracts, exceptions, env (ensure_project_env)
-│   ├── data_access/         # App DB (app_db/), vector (chroma, indexing), factory (build_clients)
-│   ├── tools/               # Registry (dict of tool factories), rel_db/, vector/ (search, index_doc)
-│   ├── agent/               # FastAPI: POST /invoke, GET /, GET /last; worker, callbacks, guardrails
-│   ├── orchestrator/        # FastAPI (/, /query, /query/async, /request/{id}, /history, DELETE /request/{id})
-│   │   ├── api/             # Doc Store & DB Store routes (/api/doc/*, /api/db/*)
-│   │   ├── templates/       # orchestrator.html (chat UI template)
-│   │   ├── session.py       # Request/plan/step_results persistence (uses app_db)
-│   │   ├── deps.py          # get_config, get_app_db (FastAPI dependency)
-│   │   ├── planner.py       # LLM plan from query + agent list
-│   │   ├── executor.py     # Run plan via HTTP to agents
-│   │   └── reporter.py      # Synthesize final answer from step results
-│   └── gateway/             # Optional reverse proxy
+│   └── env/                 # .env and .env.example
+├── data/                    # Optional local DBs, vector store, chat artifacts
+├── docs/
+├── migrations/versions/     # SQL migrations for the app DB
 ├── scripts/
-│   ├── startup.py           # Start orchestrator + all agents (prints UI URL)
-│   ├── query_cli.py         # Send query via CLI, print steps + answer
-│   ├── migrate.py           # Run SQLite migration (once)
-│   └── test_sqlite_setup.py # Verify app DB and tool wiring
+│   ├── startup.py
+│   ├── query_cli.py
+│   ├── migrate.py
+│   ├── seed_manufacturing_data.py
+│   └── test_sqlite_setup.py
+├── src/
+│   ├── core/                # Config, contracts, exceptions, logging, env helpers
+│   ├── data_access/         # SQLite + Chroma access and client building
+│   ├── tools/               # Tool implementations and registry
+│   ├── agent/               # Agent service and runtime
+│   ├── orchestrator/        # Orchestrator API, UI, planner, executor, reporter
+│   ├── gateway/             # Optional reverse proxy
+│   └── run.py               # Public library API
 ├── tests/
+├── Dockerfile
+├── docker-compose.yml
 ├── pyproject.toml
-├── requirements.txt
 └── README.md
 ```
 
-**Modularity**
+### Modularity notes
 
-- **Env**: All entrypoints (orchestrator, scripts) use `src.core.config.env.ensure_project_env(project_root)` so `.env` is loaded from `config/env/.env` or `.env` in one place.
-- **App DB**: A single connection protocol lives in `data_access.app_db.base`; session and backends use it. Routes that need the DB use the `get_app_db` FastAPI dependency (no repeated open/close boilerplate).
-- **Chroma indexing**: Shared logic in `data_access.vector.indexing` (`index_text_to_chroma`) is used by the `index_doc` tool and by the Doc Store upload API.
-- **Doc/DB Store API**: Handlers for `/api/doc/*` and `/api/db/*` live in `orchestrator.api.doc_db` and are mounted under `/api`.
-- **Orchestrator UI**: The chat UI is in `orchestrator/templates/orchestrator.html`; Python only injects iframes HTML, iframe src script, and agent meta JSON.
-- **Tools**: New tools are registered by adding a factory to the `_TOOL_FACTORIES` dict in `src/tools/registry.py`; each factory receives `clients` and returns a tool or `None`.
+- **Env loading**: entrypoints use `ensure_project_env(...)` so `.env` can be loaded consistently.
+- **App DB access**: shared through `src/data_access/app_db`.
+- **Chroma indexing**: shared by the indexing tool and the orchestrator doc upload API.
+- **Tools**: new tools are registered once in `src/tools/registry.py`.
+- **UI templating**: orchestrator HTML is mostly in `src/orchestrator/templates/orchestrator.html`.
+
+---
+
+## Setup Requirements
+
+### Python
+
+- Python `3.11+`
+
+### Required environment variables
+
+Required for most real runs:
+
+- `OPENAI_API_KEY`
+- `SQLITE_APP_PATH`
+
+Required for the sample manufacturing domain to fully work:
+
+- `SQLITE_MANUFACTURING_PATH`
+- `CHROMA_PATH`
+
+Useful optional variables:
+
+- `CONFIG_PATH`
+- `PORT`
+- `AGENT_ID`
+- `ORCHESTRATOR_API_KEY`
+- `LOG_FORMAT=json`
+- `DOC_UPLOAD_MAX_BYTES`
+- `ORCHESTRATOR_AGENT_HOST_researcher`
+- `ORCHESTRATOR_AGENT_HOST_analyst`
+- `ORCHESTRATOR_AGENT_HOST_writer`
+
+### Migrations
+
+Run `scripts/migrate.py` before using the orchestrator app/web stack.
+
+The migration runner:
+
+- applies SQL files from `migrations/versions`
+- records applied migrations in `schema_migrations`
+- stores checksums
+- refuses to continue if an already-applied migration file was modified
+
+Current schema includes:
+
+- app requests
+- app plans
+- app step results
+- validation/pause-resume columns
+- run event logging
+
+### Recommended startup order
+
+1. Configure `.env`
+2. Run `scripts/migrate.py`
+3. Optionally run `scripts/seed_manufacturing_data.py`
+4. Start the services with `scripts/startup.py`
+5. Use the web UI, CLI, or API
 
 ---
 
@@ -128,171 +218,571 @@ multi-agent-langchain/
 | Command | Description |
 |--------|--------------|
 | `PYTHONPATH=. python scripts/migrate.py` | Run DB migration once (needs `SQLITE_APP_PATH`). |
-| `PYTHONPATH=. python scripts/startup.py` | Start orchestrator + agents. Prints Orchestrator UI URL (e.g. http://127.0.0.1:8000/). Options: `--no-kill`, `--background`, `--list-ports`, `--config <path>`. |
-| `PYTHONPATH=. python scripts/query_cli.py "question"` | Send query (sync); prints request_id, steps, final answer. |
-| `PYTHONPATH=. python scripts/query_cli.py "question" --trace` | Same + full URL and request/response for each HTTP call. |
-| `PYTHONPATH=. python scripts/listen_orchestrator.py` | Poll orchestrator `GET /trace/last` every 5s and print latest request (query, plan, step_results, final answer). Optional: `--url`, `--interval`. |
+| `PYTHONPATH=. python scripts/seed_manufacturing_data.py` | Seed manufacturing SQLite + Chroma with sample data (needs `SQLITE_MANUFACTURING_PATH`, `CHROMA_PATH`, and `OPENAI_API_KEY`). |
+| `PYTHONPATH=. python scripts/startup.py` | Start orchestrator + agents. Prints the UI URL. Options: `--no-kill`, `--background`, `--list-ports`, `--config <path>`. |
+| `PYTHONPATH=. python scripts/query_cli.py "question"` | Send a sync query and print request/step/final answer output. |
+| `PYTHONPATH=. python scripts/query_cli.py "question" --trace` | Same as above, plus full request/response tracing. |
+| `PYTHONPATH=. python scripts/test_sqlite_setup.py` | Verify app DB and tool wiring without running the whole stack. |
 
 From project root; or use `pip install -e .` and omit `PYTHONPATH=.`.
 
 ---
 
-## Configuration
+## Configuration Model
 
-- **Domain JSON** (`config/domains/<id>.json`): `domain_id`, `orchestrator` (name, port, system_prompt, guardrails, tool_names), `agents[]`, `data_sources[]`, `env_file_path`.
-- **.env** (path in JSON): `SQLITE_APP_PATH` (required), `OPENAI_API_KEY` (required), `CHROMA_PATH`, `SQLITE_*` for tools.
+The main extension point is a domain JSON file such as `config/domains/manufacturing.json`.
+
+### Domain config schema
+
+The schema is represented in `src/core/config/models.py`.
+
+A domain config contains:
+
+- `domain_id`
+- `domain_name`
+- `env_file_path`
+- `orchestrator`
+- `agents`
+- `data_sources`
+- `session_store`
+
+### Orchestrator and agent config
+
+Both orchestrator and agents use the same basic shape:
+
+- `name`
+- `port`
+- `system_prompt`
+- `guardrails`
+- `tool_names`
+- optional `chat_history_path`
+- optional `label`
+- optional `base_url`
+
+### Data sources
+
+Currently supported data source types:
+
+- relational: `type: "rel_db"` with `engine: "sqlite"`
+- vector: `type: "vector_db"` with `engine: "chroma"`
+
+Each data source points to an environment variable name via `connection_id`.
+
+### Built-in tools
+
+Currently registered tools:
+
+- `query_facts`
+- `search_docs`
+- `index_doc`
+- `request_user_validation`
+
+Unknown tool names fail config validation.
+
+### Minimal domain example
+
+```json
+{
+  "domain_id": "manufacturing",
+  "domain_name": "Windmill Manufacturing",
+  "env_file_path": "config/env/.env",
+  "orchestrator": {
+    "name": "orchestrator",
+    "port": 8000,
+    "system_prompt": "Plan, delegate, and synthesize.",
+    "guardrails": ["Do not skip steps."],
+    "tool_names": []
+  },
+  "agents": [
+    {
+      "name": "researcher",
+      "port": 8001,
+      "system_prompt": "Use tools to gather facts.",
+      "guardrails": ["Do not fabricate data."],
+      "tool_names": ["search_docs", "query_facts", "index_doc"]
+    },
+    {
+      "name": "writer",
+      "port": 8002,
+      "system_prompt": "Write the final answer clearly.",
+      "guardrails": [],
+      "tool_names": []
+    }
+  ],
+  "data_sources": [
+    {
+      "id": "manufacturing_db",
+      "type": "rel_db",
+      "engine": "sqlite",
+      "connection_id": "SQLITE_MANUFACTURING_PATH"
+    },
+    {
+      "id": "docs",
+      "type": "vector_db",
+      "engine": "chroma",
+      "connection_id": "CHROMA_PATH",
+      "collection_name": "manufacturing_docs"
+    }
+  ],
+  "session_store": {
+    "type": "sqlite",
+    "connection_id": "SQLITE_APP_PATH"
+  }
+}
+```
+
+### Full sample config
+
+The default sample domain is in `config/domains/manufacturing.json`.
+
+It defines:
+
+- an orchestrator
+- three agents: `researcher`, `analyst`, `writer`
+- app DB, manufacturing DB, and Chroma-backed docs store
 
 ---
 
-## API (for integration)
+## Using This as a Library
 
-**Orchestrator** (default port 8000):
+The public library surface is in `src/run.py`.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Web UI: chat + editable plan approval, agent iframes, live step progress, final answer; left panel: chat history (with delete), Doc Store & DB Store. |
-| `/health` | GET | Health check. |
-| `/query` | POST | Sync query (no approval). Body: `{ "query": "..." }` → `{ "request_id", "status", "final_answer", "error"? }`. |
-| `/query/plan` | POST | Plan-only: create request, build plan, return for approval. Body: `{ "query": "..." }` → `200` + `{ "request_id", "status": "awaiting_approval", "plan": { "steps": [...] } }`. Used by the UI. |
-| `/query/execute` | POST | Execute plan (after approval). Body: `{ "request_id", "plan"? }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress. |
-| `/request/{request_id}/cancel` | POST | Cancel a request in `awaiting_approval`; sets status to `cancelled` and final_answer to a thanks message. |
-| `/query/async` | POST | Async query (no approval). Body: `{ "query": "..." }` → `202` + `{ "request_id" }`. Poll `GET /request/{request_id}` for progress and `final_answer`. |
-| `/request/{request_id}` | GET | Get request state: `plan`, `step_results`, `final_answer`, `status`. |
-| `/request/{request_id}` | DELETE | Permanently delete a chat (request + plan + step_results). |
-| `/history` | GET | List recent requests for chat history panel. |
-| `/trace/last` | GET | Last request trace (optional `?domain_id=`). |
-| `/api/doc/collections` | GET | List Chroma collections (Doc Store UI). |
-| `/api/doc/upload` | POST | Upload .txt/.md to Chroma (chunk + embed + index). |
-| `/api/db/connections` | GET | List configured DB connections (DB Store UI). |
-| `/api/db/test` | GET | Test a SQLite connection by `connection_id`. |
-| `/api/db/tables` | GET | List table names for a connection. |
+### Option 1: File-based config
 
-**Agent** (per-agent port, e.g. 8001–8003):
+Use `run_query(...)` when you want the library to load config from a JSON file.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Simple UI: last task, result, and tool-call steps (thought panel). |
-| `/health` | GET | Health check. |
-| `/last` | GET | Last invoke payload, result, and `steps` (tool_start/tool_end/tool_error). |
-| `/invoke` | POST | Run agent. Body: `{ "task", "context"? }` → `{ "result", "status", "latency_ms", "steps"? }`. |
+```python
+from pathlib import Path
+
+from src.run import run_query
+
+result = run_query(
+    "config/domains/manufacturing.json",
+    "What are the safety guidelines for Product X?",
+    project_root=Path("/path/to/multi-agent-langchain-main"),
+)
+
+print(result.request_id)
+print(result.status)        # completed | failed | partial
+print(result.final_answer)
+for step in result.step_results:
+    print(step.agent_name, step.status)
+```
+
+### Option 2: Programmatic config
+
+Use `run_query_with_config(...)` when you already have a `DomainConfig` or want to construct config in code.
+
+```python
+import os
+
+from src.core.config.loader import load_domain_config
+from src.run import run_query_with_config
+
+config = load_domain_config(
+    {
+        "domain_id": "demo",
+        "domain_name": "Demo Domain",
+        "env_file_path": "config/env/.env",
+        "orchestrator": {
+            "name": "orchestrator",
+            "port": 8000,
+            "system_prompt": "Plan and delegate.",
+            "guardrails": [],
+            "tool_names": []
+        },
+        "agents": [
+            {
+                "name": "researcher",
+                "port": 8001,
+                "system_prompt": "Research using tools only.",
+                "guardrails": ["Do not fabricate data."],
+                "tool_names": ["search_docs", "query_facts"]
+            },
+            {
+                "name": "writer",
+                "port": 8002,
+                "system_prompt": "Write a concise final answer.",
+                "guardrails": [],
+                "tool_names": []
+            }
+        ],
+        "data_sources": [
+            {
+                "id": "facts_db",
+                "type": "rel_db",
+                "engine": "sqlite",
+                "connection_id": "SQLITE_FACTS_PATH"
+            },
+            {
+                "id": "docs",
+                "type": "vector_db",
+                "engine": "chroma",
+                "connection_id": "CHROMA_PATH",
+                "collection_name": "demo_docs"
+            }
+        ],
+        "session_store": {
+            "type": "sqlite",
+            "connection_id": "SQLITE_APP_PATH"
+        }
+    },
+    env_overrides=os.environ,
+)
+
+result = run_query_with_config(config, "Summarize the latest policy updates.", env=os.environ)
+print(result.final_answer)
+```
+
+### Option 3: Async-safe usage
+
+Use `async_run_query_with_config(...)` inside notebooks, async servers, or existing event loops.
+
+```python
+import os
+
+from src.core.config.loader import load_domain_config
+from src.run import async_run_query_with_config
+
+config = load_domain_config("config/domains/manufacturing.json", env_overrides=os.environ)
+
+# inside an async function
+result = await async_run_query_with_config(
+    config,
+    "Give me a concise safety summary for Product X.",
+    env=os.environ,
+)
+print(result.status)
+```
+
+### Public API summary
+
+- `run_query(config_path, query, project_root=None, env_overrides=None)`
+- `run_query_with_config(domain_config, query, clients=None, project_root=None, env=None)`
+- `async_run_query_with_config(domain_config, query, clients=None, project_root=None, env=None)`
+- `RunResult`
+  - `request_id`
+  - `status`
+  - `final_answer`
+  - `step_results`
+  - `error`
+
+### Important caveats for library users
+
+- File-based config loading also loads the `.env` file pointed to by `env_file_path`.
+- Dict-based config loading validates config but does **not** automatically load env from file.
+- `run_query_with_config(...)` should not be called from an active event loop; use `async_run_query_with_config(...)`.
+- Library execution still calls agents over HTTP, so agents must be running unless mocked.
 
 ---
 
-## For developers
+## How to Build Your Own Multi-Agent Domain
 
-### 1. Extending to a new use case
+This repository is intended to be adapted to new use cases by editing configuration first.
 
-To support a new domain (e.g. HR, support, internal docs):
+### Step 1: Define the roles
 
-1. **Add a domain config**  
-   Create `config/domains/<domain_id>.json` (e.g. `hr.json`). Copy the structure from `config/domains/manufacturing.json`:
-   - `domain_id`, `domain_name`, `env_file_path`
-   - `orchestrator`: `name`, `port`, `system_prompt`, `guardrails`, `tool_names` (orchestrator usually has `tool_names: []`)
-   - `agents`: list of agents; each has `name`, `port`, `system_prompt`, `guardrails`, `tool_names`
-   - `data_sources`: list of `{ "id", "type", "engine", "connection_id" }`; for Chroma add `"collection_name"`
-   - `session_store`: `{ "type": "sqlite", "connection_id": "SQLITE_APP_PATH" }`
+Choose the agents you need, for example:
 
-2. **Environment**  
-   Use the same `.env` or a new one (e.g. `config/env/hr.env`) and set `env_file_path` in the JSON. Ensure `SQLITE_APP_PATH`, `OPENAI_API_KEY`, and any `connection_id` env vars used in `data_sources` are set.
+- `researcher`
+- `analyst`
+- `writer`
+- `reviewer`
+- `planner`
 
-3. **Run with that domain**  
-   ```bash
-   PYTHONPATH=. python scripts/startup.py --config config/domains/hr.json
-   PYTHONPATH=. python scripts/query_cli.py "Your HR question"
-   ```
+One process per role is a good starting point.
 
-No changes to orchestrator or agent **code**—only new config. If you need a new capability (e.g. call an external API, read from another DB), add a **new tool** (see below) and reference it in the right agents’ `tool_names`.
+### Step 2: Define the data sources
+
+For each domain, declare the structured and retrieval data your agents need.
+
+Examples:
+
+- SQLite facts DB
+- Chroma document index
+- app/session store
+
+### Step 3: Assign tools per agent
+
+Only give each agent the tools that role should be allowed to use.
+
+Examples:
+
+- researcher: `["search_docs", "query_facts"]`
+- analyst: `["query_facts"]`
+- writer: `[]`
+
+### Step 4: Write prompts and guardrails
+
+- The orchestrator prompt should explain how to plan and delegate.
+- Each agent prompt should define its role and tool usage rules.
+- Guardrails should be short, enforceable constraints like:
+  - `Do not fabricate data.`
+  - `Stick to the provided context.`
+  - `Max 500 words per response.`
+
+### Step 5: Test it
+
+```bash
+PYTHONPATH=. python scripts/startup.py --config config/domains/hr.json
+PYTHONPATH=. python scripts/query_cli.py "What is our vacation policy?" --trace
+```
+
+### Example: new domain workflow
+
+1. Create `config/domains/hr.json`
+2. Add environment variables for its data sources
+3. Reuse built-in tools or add new ones
+4. Start with `scripts/startup.py --config ...`
+5. Iterate on prompts, tools, and guardrails until behavior is correct
 
 ---
 
-### 2. Defining new tools
+## Defining New Tools
 
-Tools are LangChain tools that agents can call. The registry in `src/tools/registry.py` maps `tool_names` from config to actual tool instances, injecting data clients where needed.
+Tools are LangChain tools that agents can call. The registry in `src/tools/registry.py` maps config tool names to concrete tool instances.
 
-**Step 1 – Implement the tool**
-
-- Add a module under `src/tools/` (e.g. `src/tools/rel_db/query.py` or a new subpackage).
-- Create a **factory function** that returns a LangChain tool (use `@tool` from `langchain_core.tools`). The factory can take a client (DB URL, retriever, etc.) so the registry can inject it.
-
-Example (conceptually like `query_facts`):
+### Step 1: Implement the tool
 
 ```python
 # src/tools/my_tool/thing.py
 from langchain_core.tools import tool
 
-def create_my_tool(some_client):  # client comes from build_clients()
+
+def create_my_tool(some_client):
     @tool
     def my_tool(arg: str) -> str:
-        """Description for the LLM: what this tool does and when to use it."""
-        # use some_client, return a string
-        return "result"
+        """Describe what this tool does and when the LLM should use it."""
+        return f"processed: {arg}"
+
     return my_tool
 ```
 
-**Step 2 – Register the tool**
-
-- In `src/tools/registry.py`, add a factory function that takes `clients` and returns the tool or `None`, then register it in `_TOOL_FACTORIES`:
+### Step 2: Register the tool
 
 ```python
+from typing import Any
+
+
 def _my_tool_factory(clients: dict[str, Any]) -> Any | None:
-    client = clients.get("my_data_source_id")  # id from config data_sources
+    client = clients.get("my_data_source_id")
     return create_my_tool(client) if client else None
 
+
 _TOOL_FACTORIES = {
-    ...
+    # existing tools...
     "my_tool": _my_tool_factory,
 }
 ```
 
-**Step 3 – Wire config**
+### Step 3: Wire it into config
 
-- In your domain JSON, ensure the tool’s **data source** exists under `data_sources` (so `build_clients` fills `clients["my_data_source_id"]`).
-- Add `"my_tool"` to the `tool_names` list of any agent that should use it.
+- add the required data source under `data_sources`
+- add `"my_tool"` to the relevant agent’s `tool_names`
 
-Agents receive only the tools listed in their `tool_names`; the orchestrator does not run tools itself.
-
----
-
-### 3. Adapting to a specific use case
-
-To tailor the package to a concrete use case (e.g. “HR policy answers”, “support ticket summarization”):
-
-1. **Define the roles**  
-   Decide which agents you need (e.g. “researcher”, “analyst”, “writer”) and what each is responsible for. One agent per role is a good default.
-
-2. **Define data sources**  
-   In `data_sources`, list every DB or vector store the agents need:
-   - **SQLite**: `{ "id": "hr_db", "type": "rel_db", "engine": "sqlite", "connection_id": "SQLITE_HR_PATH" }`
-   - **Chroma**: `{ "id": "docs", "type": "vector_db", "engine": "chroma", "connection_id": "CHROMA_PATH", "collection_name": "hr_policies" }`  
-   Set the corresponding env vars in `.env`.
-
-3. **Assign tools per agent**  
-   In each agent’s `tool_names`, list only the tools that role should use (e.g. researcher: `["search_docs", "query_facts"]`; writer: `[]`). Use the same tool names you register in `src/tools/registry.py`.
-
-4. **Write prompts and guardrails**  
-   - **Orchestrator** `system_prompt`: instruct it to understand the query, plan steps, delegate to the right agents by name, and synthesize a final answer. Mention the list of agent names.  
-   - **Each agent** `system_prompt`: role, responsibility, and “use only the provided tools”.  
-   - **Guardrails**: short list of rules (e.g. “Do not fabricate data.”, “Max 500 words.”). These are passed to the agent runtime; keep them enforceable and clear.
-
-5. **Optional: new tools**  
-   If the use case needs a new capability (e.g. call an API, read from another system), add the tool in `src/tools/` and register it as in **Defining new tools** above, then add it to the right agents’ `tool_names`.
-
-6. **Test**  
-   Run `startup.py` with your domain config and send representative queries via `query_cli.py`. Use `--trace` to inspect requests and responses. Adjust prompts, guardrails, or tool assignments until behavior matches the use case.
+Agents only receive the tools listed in their own config.
 
 ---
 
-## Tech used
+## API Reference
+
+## Orchestrator (default port `8000`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web UI with plan approval, agent iframes, history, doc store, and DB store. |
+| `/health` | GET | Health check. |
+| `/query` | POST | Sync query. Returns `{ request_id, status, final_answer, error? }`. |
+| `/query/plan` | POST | Create request + plan for approval. |
+| `/query/execute` | POST | Execute an approved or edited plan. |
+| `/query/async` | POST | Start async query execution and return request ID. |
+| `/request/{request_id}` | GET | Inspect request state, plan, and step results. |
+| `/request/{request_id}/respond` | POST | Resume a run paused for user validation. |
+| `/request/{request_id}/cancel` | POST | Cancel a request awaiting approval. |
+| `/request/{request_id}` | DELETE | Delete a chat/request and related persisted state. |
+| `/history` | GET | Return recent requests for the UI. |
+| `/trace/last` | GET | Return the most recent request trace. |
+| `/runs/{run_id}/events` | GET | Stream run events as SSE. |
+| `/api/doc/collections` | GET | List Chroma collections. |
+| `/api/doc/upload` | POST | Upload `.txt` or `.md` and index to Chroma. |
+| `/api/db/connections` | GET | List configured DB connections. |
+| `/api/db/test` | GET | Test a configured DB connection. |
+| `/api/db/tables` | GET | List tables for a configured DB connection. |
+
+## Agent (one per configured port)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Simple UI showing latest task/result/tool calls. |
+| `/health` | GET | Health check. |
+| `/last` | GET | Last invoke payload/result/tool steps. |
+| `/invoke` | POST | Execute the agent task and return structured output. |
+
+Agent responses may include:
+
+- `result`
+- `status`
+- `latency_ms`
+- `steps`
+- `requires_validation`
+- `validation_payload`
+- structured artifacts/tool call metadata
+
+---
+
+## Docker
+
+The repo includes:
+
+- a `Dockerfile` for a single reusable image
+- a `docker-compose.yml` stack for local multi-service startup
+
+### Compose stack
+
+The compose stack currently includes:
+
+- `migrate`
+- `orchestrator`
+- `researcher`
+- `analyst`
+- `writer`
+
+The `migrate` service runs first so the app DB schema exists before the orchestrator starts.
+
+### Run with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Expected behavior:
+
+- `migrate` runs once and exits successfully
+- orchestrator and agents start afterward
+- services use `./data:/data`
+- service-to-service calls use Docker hostnames via `ORCHESTRATOR_AGENT_HOST_*`
+
+---
+
+## Serverless / Remote Agent Notes
+
+This codebase can support remote agents through config.
+
+### Per-agent `base_url`
+
+Any agent can override local host/port resolution with:
+
+```json
+{
+  "name": "researcher",
+  "base_url": "https://my-agent.example.com"
+}
+```
+
+The orchestrator will call:
+
+- `{base_url}/invoke`
+
+### Local vs remote config
+
+| | Local run | Remote / serverless |
+|--|-----------|---------------------|
+| Config source | file path | file path, dict, App Config, Blob, Key Vault |
+| Agent addressing | host + port | `base_url` |
+| Data stores | local SQLite / Chroma | managed DB/vector store |
+| Env | `.env` | app settings / secret store |
+
+Local behavior remains unchanged; deployment behavior can be adapted by config.
+
+---
+
+## Testing and Development
+
+### Install dev dependencies
+
+```bash
+pip install -e ".[dev]"
+```
+
+### Run checks
+
+```bash
+ruff check src tests scripts
+mypy src
+pytest tests/unit tests/integration -v
+```
+
+### CI notes
+
+CI runs on Python `3.11` and `3.12`.
+
+Current workflow includes:
+
+- Ruff on `tests` and `scripts`
+- Ruff on `src`
+- mypy on `src`
+- unit and integration tests
+
+---
+
+## Developer Guide
+
+### Extending to a new use case
+
+To support a new domain such as HR, support, legal, or internal docs:
+
+1. create a new domain JSON under `config/domains/`
+2. define its agents, prompts, tools, and data sources
+3. set matching environment variables
+4. start the stack with `--config`
+
+Example:
+
+```bash
+PYTHONPATH=. python scripts/startup.py --config config/domains/hr.json
+PYTHONPATH=. python scripts/query_cli.py "Summarize the PTO policy."
+```
+
+### Direct service startup
+
+You can also start services manually:
+
+```bash
+PYTHONPATH=. python -m src.orchestrator.main
+PYTHONPATH=. python -m src.agent.main --agent-id researcher --config-path config/domains/manufacturing.json
+PYTHONPATH=. python -m src.agent.main --agent-id analyst --config-path config/domains/manufacturing.json
+PYTHONPATH=. python -m src.agent.main --agent-id writer --config-path config/domains/manufacturing.json
+```
+
+---
+
+## Caveats and Important Notes
+
+- Library mode is **not fully in-process**. It still executes agent steps over HTTP.
+- Dict-based config loading does **not** automatically load the `.env` file.
+- Missing datasource env vars may lead to tools acting like no-ops rather than full startup failure.
+- Only SQLite and Chroma are supported data source types today.
+- `query_facts` is read-only and only supports read-only `SELECT`/`WITH` style SQL.
+- Chroma indexing/search depends on embedding/model access, so `OPENAI_API_KEY` matters for that workflow.
+- `scripts/startup.py` stops processes on configured ports by default unless you pass `--no-kill`.
+- Output is intentionally **HTML-first**, not Markdown.
+- The web app depends on the migrated app DB; library mode does not persist to the app DB.
+
+---
+
+## Tech Stack
 
 | Area | Technology |
 |------|------------|
-| **Language** | Python 3.11+ |
-| **API / services** | FastAPI, Uvicorn |
-| **Agents / LLM** | LangChain, LangChain-OpenAI, LangChain-Classic (tool-calling agent, AgentExecutor) |
-| **App database** | SQLite (aiosqlite) |
-| **Vector store** | Chroma (LangChain-Chroma) |
-| **Config** | JSON (domain files), python-dotenv (.env) |
-| **CLI / scripts** | Python (startup, query_cli, listen_orchestrator, migrate) |
+| Language | Python 3.11+ |
+| API / services | FastAPI, Uvicorn |
+| Agents / LLM | LangChain, LangChain-OpenAI, LangChain-Classic |
+| App database | SQLite (`aiosqlite`) |
+| Vector store | Chroma (`langchain-chroma`) |
+| Config | JSON domain files + `.env` (`python-dotenv`) |
+| Validation / models | Pydantic |
+| Docker | Dockerfile + Docker Compose |
+| CLI / scripts | Python scripts |
 
 ---
 

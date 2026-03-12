@@ -1,9 +1,44 @@
 """Callback handler that collects tool start/end/error events for UI display."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+
+class ValidationCaptureCallbackHandler(BaseCallbackHandler):
+    """Captures when the agent calls request_user_validation; stores the payload for the orchestrator."""
+
+    def __init__(self) -> None:
+        self.validation_payload: dict[str, Any] | None = None
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        *,
+        run_id: Any = None,
+        parent_run_id: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        name = (serialized.get("name") or "").replace(" ", "_")
+        if name == "request_user_validation":
+            try:
+                if isinstance(input_str, str) and input_str.strip().startswith("{"):
+                    data = json.loads(input_str)
+                elif isinstance(input_str, dict):
+                    data = input_str
+                else:
+                    data = {"message": str(input_str), "validation_type": "confirm"}
+                self.validation_payload = {
+                    "message": data.get("message", "Please confirm."),
+                    "validation_type": data.get("validation_type", "confirm"),
+                    "options": data.get("options"),
+                    "allow_reject": data.get("allow_reject", False),
+                }
+            except (json.JSONDecodeError, TypeError):
+                self.validation_payload = {"message": str(input_str)[:500], "validation_type": "confirm", "options": None, "allow_reject": False}
 
 
 class ThoughtCollectorCallbackHandler(BaseCallbackHandler):

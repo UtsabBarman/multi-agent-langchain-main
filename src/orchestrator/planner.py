@@ -1,19 +1,18 @@
 """Generate a Plan (steps) from user query using LLM."""
 from __future__ import annotations
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
 from src.core.config.models import DomainConfig
 from src.core.contracts.orchestrator import Plan, Step
 
-
 # In the template, only {agent_names} and {query} are variables; JSON example uses {{ }} for literal braces
 SYSTEM = """You are a planner. Given a user query and a list of available agents, output a JSON plan.
-Available agents: {agent_names}
+Available agents (use these exact strings for agent_name, no substitutions): {agent_names}
 Output only valid JSON with this exact structure (no markdown, no explanation):
 {{ "steps": [{{ "step_index": 1, "agent_name": "<name>", "task_description": "<what to do>" }}, ...] }}
-Use only agent names from the list. Order steps logically."""
+Every step's agent_name must be exactly one of the available agents listed above. Order steps logically."""
 
 
 def build_plan(query: str, domain_config: DomainConfig) -> Plan:
@@ -25,7 +24,8 @@ def build_plan(query: str, domain_config: DomainConfig) -> Plan:
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     chain = prompt | llm
     out = chain.invoke({"query": query, "agent_names": agent_names})
-    text = out.content if hasattr(out, "content") else str(out)
+    raw_content = out.content if hasattr(out, "content") else out
+    text = raw_content if isinstance(raw_content, str) else str(raw_content)
     # Parse JSON from response (strip markdown if present)
     import json
     text = text.strip()

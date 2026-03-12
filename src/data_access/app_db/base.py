@@ -8,6 +8,7 @@ class AppDbConnectionBase(Protocol):
     requests_table: str
     plans_table: str
     step_results_table: str
+    run_events_table: str  # "run_events"
 
     async def execute(self, sql: str, *params: Any) -> None: ...
     async def fetchrow(self, sql: str, *params: Any) -> dict[str, Any] | None: ...

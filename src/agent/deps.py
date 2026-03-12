@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
-from src.core.config.loader import load_domain_config
+from src.agent.worker import build_agent
 from src.core.config.models import AgentConfig, DomainConfig
 from src.data_access.factory import build_clients
-from src.agent.worker import build_agent
 
 
 def get_agent_config(domain_config: DomainConfig, agent_id: str) -> AgentConfig:
@@ -23,3 +21,7 @@ def get_clients(domain_config: DomainConfig, project_root: Path | None = None) -
 
 def get_agent_runner(agent_config: AgentConfig, clients: dict[str, Any]):
     return build_agent(agent_config, clients)
+
+
+# Public alias for library/serverless: build runner from (config, clients) on demand.
+build_agent_runner = get_agent_runner

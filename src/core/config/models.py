@@ -13,6 +13,7 @@ class AgentConfig(BaseModel):
     tool_names: list[str] = Field(default_factory=list)
     chat_history_path: str | None = None  # JSON file for this agent's chat history; default data/chat/{name}.json
     label: str | None = None  # Display name in UI; if unset, derived from name (e.g. "research_agent" -> "Research agent")
+    base_url: str | None = None  # If set, orchestrator uses this as agent base URL (e.g. Azure Function URL); else http://host:port
 
     def get_display_label(self) -> str:
         """Label for UI; uses config label or name with underscores as spaces, title-cased."""
@@ -63,4 +64,6 @@ class DomainConfig(BaseModel):
         agent = self.get_agent_by_name(name)
         if not agent:
             raise ValueError(f"Agent {name} not in config")
+        if getattr(agent, "base_url", None) and agent.base_url:
+            return agent.base_url.rstrip("/")
         return f"http://{host}:{agent.port}"
