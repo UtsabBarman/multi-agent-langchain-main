@@ -1,0 +1,5677 @@
+{
+  "schema_version": "1.1",
+  "ruleset_id": "asn_mortgage_acceptance",
+  "ruleset_name": "ASN Bank mortgage acceptance rules (machine-readable)",
+  "generated_date": "2026-06-22",
+  "rule_count": 165,
+  "source": {
+    "title": "Regels voor het accepteren, verstrekken en wijzigen van een hypotheek",
+    "issuer": "ASN Bank NV",
+    "version_date": "2025-07-01",
+    "disclaimer": "SYNTHETIC / SUMMARISED for pipeline testing. Derived from public ASN documentation. Not legal or financial advice. Verify against the live ASN ruleset and NHG norms before any real use."
+  },
+  "usage": {
+    "description": "Each rule has a machine-evaluable `check` (when `auto_evaluable` is true) plus pass/fail `examples`. An agent maps the parsed application JSON to field paths, evaluates each rule, and emits a finding.",
+    "finding_output_contract": {
+      "rule_id": "string",
+      "rule_name": "string",
+      "status": "one of status_values",
+      "evidence": "string",
+      "remediation": "string"
+    },
+    "status_values": [
+      "pass",
+      "fail",
+      "warning",
+      "unknown"
+    ],
+    "severity_values": {
+      "blocking_never_deviate": "Hard stop; ASN never deviates. A fail rejects the application.",
+      "blocking": "Must pass; exceptions only via individual maatwerk review.",
+      "warning": "Does not block but needs attention / extra documentation.",
+      "info": "Informational threshold; surface for the adviser."
+    },
+    "operators": [
+      "==",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">=",
+      "in",
+      "not_in",
+      "contains",
+      "not_contains",
+      "contains_any",
+      "contains_all",
+      "not_contains_any",
+      "exists",
+      "not_exists",
+      "is_true",
+      "is_false"
+    ],
+    "nhg_scope": {
+      "both": "Applies with and without NHG.",
+      "with_nhg_only": "Only when NHG is requested.",
+      "without_nhg_only": "Only when NHG is not requested."
+    },
+    "check_shapes": [
+      "leaf: {field, operator, value|value_field}",
+      "composite: {all_of:[...]} or {any_of:[...]}",
+      "for_each: {for_each, when?, require}",
+      "aggregate: {field, operator, value, aggregate:'max'}",
+      "manual_review: {type:'manual_review', expression}",
+      "gating: any check may add only_when/skip_when/stage"
+    ]
+  },
+  "categories": [
+    "affordability",
+    "applicant",
+    "bouwdepot",
+    "changes",
+    "credit",
+    "documents",
+    "income",
+    "loan",
+    "loan_to_value",
+    "maatwerk",
+    "property",
+    "valuation"
+  ],
+  "rules": [
+    {
+      "rule_id": "APPL-001",
+      "rule_name": "Applicant resides in the Eurozone",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2",
+      "description": "At application time the applicant must live in a Eurozone country.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.residence_country",
+        "operator": "in",
+        "value": [
+          "Netherlands",
+          "NL",
+          "Belgium",
+          "BE",
+          "Germany",
+          "DE",
+          "France",
+          "FR",
+          "Austria",
+          "AT",
+          "Spain",
+          "ES",
+          "Italy",
+          "IT",
+          "Ireland",
+          "IE",
+          "Portugal",
+          "PT",
+          "Luxembourg",
+          "LU",
+          "Finland",
+          "FI",
+          "Greece",
+          "GR",
+          "Slovakia",
+          "SK",
+          "Slovenia",
+          "SI",
+          "Estonia",
+          "EE",
+          "Latvia",
+          "LV",
+          "Lithuania",
+          "LT",
+          "Cyprus",
+          "CY",
+          "Malta",
+          "MT",
+          "Croatia",
+          "HR"
+        ],
+        "expression": "applicant.residence_country IN eurozone"
+      },
+      "remediation": "Confirm the applicant lives in a Eurozone country; otherwise ASN cannot lend.",
+      "examples": [
+        {
+          "description": "Lives in Utrecht",
+          "application_excerpt": {
+            "applicant.residence_country": "Netherlands"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "NL is Eurozone."
+        },
+        {
+          "description": "Lives in the UK",
+          "application_excerpt": {
+            "applicant.residence_country": "United Kingdom"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "UK is outside the Eurozone."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-002",
+      "rule_name": "Right to live and work in the Netherlands",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.2",
+      "description": "Applicant must be allowed to live and work in NL for the mortgage term when income is needed: Dutch/EU/EEA/Swiss nationality or a qualifying IND permit.",
+      "auto_evaluable": true,
+      "check": {
+        "any_of": [
+          {
+            "field": "applicant.nationality",
+            "operator": "in",
+            "value": [
+              "Dutch",
+              "NL",
+              "EU",
+              "EEA",
+              "Swiss"
+            ]
+          },
+          {
+            "field": "applicant.residence_permit_type",
+            "operator": "in",
+            "value": [
+              "permanent",
+              "EU long-term resident",
+              "duurzaam verblijf",
+              "non-temporary purpose (art 3.5)"
+            ]
+          }
+        ],
+        "expression": "EU/EEA/Swiss nationality OR qualifying IND permit"
+      },
+      "remediation": "Provide proof of EU/EEA/Swiss nationality or a qualifying IND residence document.",
+      "examples": [
+        {
+          "description": "Dutch national",
+          "application_excerpt": {
+            "applicant.nationality": "Dutch"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Dutch nationality."
+        },
+        {
+          "description": "Non-EU, temporary permit",
+          "application_excerpt": {
+            "applicant.nationality": "Indian",
+            "applicant.residence_permit_type": "temporary - study"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Only a temporary permit; not a qualifying document."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-003",
+      "rule_name": "Binding with the Netherlands",
+      "category": "applicant",
+      "severity": "blocking",
+      "nhg_scope": "without_nhg_only",
+      "source_ref": "Ch.2.3",
+      "description": "Applicant must have binding with NL (lives/works in NL or Dutch nationality). Not required if this income is not needed or for NHG.",
+      "auto_evaluable": true,
+      "check": {
+        "any_of": [
+          {
+            "field": "applicant.nationality",
+            "operator": "==",
+            "value": "Dutch"
+          },
+          {
+            "field": "applicant.lives_or_works_in_nl",
+            "operator": "is_true"
+          }
+        ],
+        "expression": "Dutch nationality OR lives/works in NL"
+      },
+      "remediation": "Demonstrate binding via residence/employment in NL.",
+      "examples": [
+        {
+          "description": "Cross-border worker",
+          "application_excerpt": {
+            "applicant.lives_or_works_in_nl": true,
+            "applicant.nationality": "German"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Works in NL."
+        },
+        {
+          "description": "No NL ties",
+          "application_excerpt": {
+            "applicant.lives_or_works_in_nl": false,
+            "applicant.nationality": "French",
+            "nhg_requested": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No binding with NL."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-004",
+      "rule_name": "Owner-occupied primary residence",
+      "category": "applicant",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2",
+      "description": "The home must be used primarily for own occupancy, not purely business or investment.",
+      "auto_evaluable": true,
+      "check": {
+        "all_of": [
+          {
+            "field": "property.owner_occupied",
+            "operator": "is_true"
+          },
+          {
+            "field": "occupancy",
+            "operator": "in",
+            "value": [
+              "primary residence",
+              "owner-occupied",
+              "own occupancy"
+            ]
+          }
+        ],
+        "expression": "owner_occupied AND occupancy = primary residence"
+      },
+      "remediation": "Confirm owner-occupancy; buy-to-let is not eligible.",
+      "examples": [
+        {
+          "description": "Primary residence",
+          "application_excerpt": {
+            "property.owner_occupied": true,
+            "occupancy": "primary residence"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Owner-occupied."
+        },
+        {
+          "description": "Buy-to-let",
+          "application_excerpt": {
+            "property.owner_occupied": false,
+            "occupancy": "investment"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Investment occupancy."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-005",
+      "rule_name": "Co-owner ownership split max 60/40",
+      "category": "applicant",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.1",
+      "description": "With two applicants ownership is 50/50, or up to 60/40 if set in notarial conditions before the deed.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "ownership.shares_pct",
+        "operator": "<=",
+        "value": 60,
+        "aggregate": "max",
+        "expression": "max(ownership.shares_pct) <= 60"
+      },
+      "remediation": "Adjust split to within 60/40 (notarial conditions) or use 50/50.",
+      "examples": [
+        {
+          "description": "50/50",
+          "application_excerpt": {
+            "ownership.shares_pct": [
+              50,
+              50
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Equal ownership."
+        },
+        {
+          "description": "70/30",
+          "application_excerpt": {
+            "ownership.shares_pct": [
+              70,
+              30
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "70/30 exceeds 60/40."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-006",
+      "rule_name": "All owners jointly and severally liable",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2",
+      "description": "All owners must become jointly and severally liable (hoofdelijk schuldenaar) for the whole mortgage.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.all_owners_jointly_liable",
+        "operator": "is_true",
+        "expression": "all owners hoofdelijk schuldenaar"
+      },
+      "remediation": "Ensure every owner signs as joint and several debtor.",
+      "examples": [
+        {
+          "description": "Both owners liable",
+          "application_excerpt": {
+            "applicant.all_owners_jointly_liable": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "All owners jointly liable."
+        },
+        {
+          "description": "One owner not liable",
+          "application_excerpt": {
+            "applicant.all_owners_jointly_liable": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not all owners are jointly liable."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-007",
+      "rule_name": "Applicant legally competent",
+      "category": "applicant",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2",
+      "description": "Applicant must be legally competent (handelingsbekwaam).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.legally_competent",
+        "operator": "is_true",
+        "expression": "applicant.legally_competent == true"
+      },
+      "remediation": "Confirm legal competence; otherwise representation/guardianship rules apply.",
+      "examples": [
+        {
+          "description": "Competent adult",
+          "application_excerpt": {
+            "applicant.legally_competent": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Legally competent."
+        },
+        {
+          "description": "Under guardianship",
+          "application_excerpt": {
+            "applicant.legally_competent": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not legally competent."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-008",
+      "rule_name": "No co-purchase with family",
+      "category": "applicant",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2",
+      "description": "ASN does not provide a mortgage to an applicant who buys together with family (parents may co-sign as debtor only).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.co_purchase_with_family",
+        "operator": "is_false",
+        "expression": "co_purchase_with_family == false"
+      },
+      "remediation": "Restructure so the home is not co-purchased with family.",
+      "examples": [
+        {
+          "description": "Couple buying",
+          "application_excerpt": {
+            "applicant.co_purchase_with_family": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Not a family co-purchase."
+        },
+        {
+          "description": "Buying with sibling",
+          "application_excerpt": {
+            "applicant.co_purchase_with_family": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Co-purchase with family not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-009",
+      "rule_name": "Parent co-signer is debtor, not owner",
+      "category": "applicant",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2 (exception)",
+      "description": "Parents who co-sign do not become owner/occupant but are jointly liable for the whole mortgage.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "If parent_cosigner: parent is hoofdelijk schuldenaar but not owner/occupant."
+      },
+      "remediation": "Document parent co-signer as debtor only.",
+      "examples": [
+        {
+          "description": "Parent co-signer",
+          "application_excerpt": {
+            "applicant.parent_cosigner": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Manual check of co-signer structure."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-010",
+      "rule_name": "Durable relationship and intent to occupy (joint applicants)",
+      "category": "applicant",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.1",
+      "description": "Joint applicants must have a durable relationship and intent to keep living in the home for the mortgage term.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.durable_relationship",
+        "operator": "is_true",
+        "expression": "durable_relationship == true (when 2 applicants)"
+      },
+      "remediation": "Confirm durable relationship for joint applicants.",
+      "examples": [
+        {
+          "description": "Registered partners",
+          "application_excerpt": {
+            "applicant.durable_relationship": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Durable relationship."
+        },
+        {
+          "description": "No durable relationship",
+          "application_excerpt": {
+            "applicant.durable_relationship": false
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Joint applicants without durable relationship."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-011",
+      "rule_name": "Identity verification (Wwft)",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.6",
+      "description": "A valid identity document is required and verified for every applicant.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.id_document_valid",
+        "operator": "is_true",
+        "expression": "applicant.id_document_valid == true"
+      },
+      "remediation": "Provide a valid passport/ID card for every applicant.",
+      "examples": [
+        {
+          "description": "Valid passport",
+          "application_excerpt": {
+            "applicant.id_document_valid": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Valid ID on file."
+        },
+        {
+          "description": "No valid ID",
+          "application_excerpt": {
+            "applicant.id_document_valid": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No valid identity document."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-012",
+      "rule_name": "BSN available at signing",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.6",
+      "description": "A BSN must be available for every applicant when the signed offer is returned (may be supplied at signing for privacy).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.bsn_provided",
+        "operator": "is_true",
+        "stage": "at_signing",
+        "expression": "bsn_provided == true at signing"
+      },
+      "remediation": "Collect the BSN for every applicant before/at offer signing.",
+      "examples": [
+        {
+          "description": "BSN to follow",
+          "application_excerpt": {
+            "applicant.bsn_provided": false
+          },
+          "expected_status": "warning",
+          "expected_evidence": "BSN not yet provided (acceptable before signing)."
+        }
+      ]
+    },
+    {
+      "rule_id": "APPL-013",
+      "rule_name": "Integrity and fraud screening",
+      "category": "applicant",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.5",
+      "description": "The application is screened against internal/external fraud registers (IVR, CHF, VIS, BKR, SFH/EVA).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.fraud_screening_clear",
+        "operator": "is_true",
+        "expression": "fraud_screening_clear == true"
+      },
+      "remediation": "Resolve any hit in fraud/integrity registers before proceeding.",
+      "examples": [
+        {
+          "description": "No hits",
+          "application_excerpt": {
+            "applicant.fraud_screening_clear": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Clear screening."
+        },
+        {
+          "description": "Fraud register hit",
+          "application_excerpt": {
+            "applicant.fraud_screening_clear": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Hit in fraud/integrity register."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-001",
+      "rule_name": "No prohibited BKR special codes",
+      "category": "credit",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4",
+      "description": "Special codes A and H, and codes 1-5, are not allowed for financing.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "liabilities.bkr.special_codes",
+        "operator": "not_contains_any",
+        "value": [
+          "A",
+          "H",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "expression": "no special_codes in {A,H,1-5}"
+      },
+      "remediation": "Prohibited BKR special coding; only a previously accepted coding of an existing customer can be reviewed.",
+      "examples": [
+        {
+          "description": "Clean",
+          "application_excerpt": {
+            "liabilities.bkr.special_codes": []
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No special codes."
+        },
+        {
+          "description": "Code 2",
+          "application_excerpt": {
+            "liabilities.bkr.special_codes": [
+              "2"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Code '2' not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-002",
+      "rule_name": "No prohibited BKR registration types",
+      "category": "credit",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4",
+      "description": "Registration types RO/ZO, HY, and SR/SK/SH are not allowed (limited NHG-discharge exceptions for HY/RN).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "liabilities.bkr.registration_types",
+        "operator": "not_contains_any",
+        "value": [
+          "RO",
+          "ZO",
+          "HY",
+          "SR",
+          "SK",
+          "SH"
+        ],
+        "expression": "no registration_types in {RO,ZO,HY,SR,SK,SH}"
+      },
+      "remediation": "Check for the documented NHG-discharge exception; otherwise reject.",
+      "examples": [
+        {
+          "description": "RK + OA",
+          "application_excerpt": {
+            "liabilities.bkr.registration_types": [
+              "RK",
+              "OA"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Allowed types."
+        },
+        {
+          "description": "HY",
+          "application_excerpt": {
+            "liabilities.bkr.registration_types": [
+              "HY"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "HY not allowed (unless NHG exception)."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-003",
+      "rule_name": "Eight or more BKR contracts triggers individual review",
+      "category": "credit",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4.1",
+      "description": "If 8 or more contracts are registered, assess individually and request an explanation of the credit need.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "liabilities.bkr.contract_count",
+        "operator": "<",
+        "value": 8,
+        "expression": "bkr.contract_count < 8"
+      },
+      "remediation": "Request adviser statement on credit need; individual assessment.",
+      "examples": [
+        {
+          "description": "2 contracts",
+          "application_excerpt": {
+            "liabilities.bkr.contract_count": 2
+          },
+          "expected_status": "pass",
+          "expected_evidence": "2 contracts."
+        },
+        {
+          "description": "9 contracts",
+          "application_excerpt": {
+            "liabilities.bkr.contract_count": 9
+          },
+          "expected_status": "warning",
+          "expected_evidence": ">=8 contracts need review."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-004",
+      "rule_name": "Foreign credit check for relevant nationals/residents",
+      "category": "credit",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4.2",
+      "description": "A foreign credit check (CRIF/KSV/SCHUFA/NBB) is required when an applicant is a national of, or lives/works in, IT/AT/DE/BE.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "If nationality or residence in {IT,AT,DE,BE}: foreign BKR check required."
+      },
+      "remediation": "Order the relevant foreign credit check.",
+      "examples": [
+        {
+          "description": "German national",
+          "application_excerpt": {
+            "applicant.nationality": "German"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Order SCHUFA check."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-005",
+      "rule_name": "Payment problems at our bank reviewed by Special Servicing",
+      "category": "credit",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4",
+      "description": "Past payment problems / arrears codings at our bank are reviewed by Bijzonder Beheer before acceptance.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "liabilities.internal_arrears",
+        "operator": "is_false",
+        "expression": "internal_arrears == false (else Bijzonder Beheer review)"
+      },
+      "remediation": "Route to Bijzonder Beheer for individual assessment.",
+      "examples": [
+        {
+          "description": "No internal arrears",
+          "application_excerpt": {
+            "liabilities.internal_arrears": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No internal payment problems."
+        },
+        {
+          "description": "Internal arrears",
+          "application_excerpt": {
+            "liabilities.internal_arrears": true
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Requires Bijzonder Beheer review."
+        }
+      ]
+    },
+    {
+      "rule_id": "BKR-006",
+      "rule_name": "Disclose foreign credits and obligations",
+      "category": "credit",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.4.2",
+      "description": "Credits or financial obligations held abroad must be disclosed and are taken into account.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "All foreign credits/obligations disclosed and assessed."
+      },
+      "remediation": "Request disclosure of any foreign credits.",
+      "examples": [
+        {
+          "description": "Foreign credit disclosed",
+          "application_excerpt": {
+            "liabilities.foreign_credits_disclosed": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Manual verification of disclosure."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-001",
+      "rule_name": "Stable, freely disposable income required",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3",
+      "description": "Applicant needs stable, freely disposable income to afford the mortgage, paid to an account in NL, Belgium, or Germany.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "income.toetsinkomen_annual",
+        "operator": ">",
+        "value": 0,
+        "expression": "toetsinkomen_annual > 0 and stable"
+      },
+      "remediation": "Document stable income via employer's statement / income determination.",
+      "examples": [
+        {
+          "description": "EUR 110,400",
+          "application_excerpt": {
+            "income.toetsinkomen_annual": 110400
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Stable test income."
+        },
+        {
+          "description": "No income",
+          "application_excerpt": {
+            "income.toetsinkomen_annual": 0
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No stable test income."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-002",
+      "rule_name": "Temporary contract needs intention statement or perspectiefverklaring",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1/3.2",
+      "description": "Temporary-contract income counts only with an intention statement (post-probation, NHG model) or a Perspectiefverklaring/Arbeidsmarktscan.",
+      "auto_evaluable": true,
+      "check": {
+        "for_each": "income.applicants",
+        "when": {
+          "field": "type",
+          "operator": "==",
+          "value": "temporary"
+        },
+        "require": {
+          "any_of": [
+            {
+              "field": "intention_statement",
+              "operator": "is_true"
+            },
+            {
+              "field": "perspectiefverklaring",
+              "operator": "is_true"
+            }
+          ]
+        },
+        "expression": "each temporary applicant: intention_statement OR perspectiefverklaring"
+      },
+      "remediation": "Obtain an intention statement or Perspectiefverklaring.",
+      "examples": [
+        {
+          "description": "Temp + intention",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "S",
+                "type": "temporary",
+                "intention_statement": true,
+                "perspectiefverklaring": false
+              }
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Supported by intention statement."
+        },
+        {
+          "description": "Temp, none",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "S",
+                "type": "temporary",
+                "intention_statement": false,
+                "perspectiefverklaring": false
+              }
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No supporting statement."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-003",
+      "rule_name": "Bonus/overtime capped at 30% of fixed income",
+      "category": "income",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1",
+      "description": "Structural overtime/bonus/commission over the last 12 months count up to 30% of fixed income, if customary and expected.",
+      "auto_evaluable": true,
+      "check": {
+        "for_each": "income.applicants",
+        "require": {
+          "field": "bonus_pct_of_fixed",
+          "operator": "<=",
+          "value": 30
+        },
+        "expression": "each applicant: bonus_pct_of_fixed <= 30"
+      },
+      "remediation": "Cap variable income at 30% of fixed income.",
+      "examples": [
+        {
+          "description": "10%",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "D",
+                "bonus_pct_of_fixed": 10
+              }
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within cap."
+        },
+        {
+          "description": "45%",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "D",
+                "bonus_pct_of_fixed": 45
+              }
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Exceeds 30% cap."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-004",
+      "rule_name": "Foreign income: only fixed income counts",
+      "category": "income",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1",
+      "description": "When income is earned abroad, only fixed income qualifies as test income.",
+      "auto_evaluable": true,
+      "check": {
+        "for_each": "income.applicants",
+        "when": {
+          "field": "source_country",
+          "operator": "not_in",
+          "value": [
+            "Netherlands",
+            "NL"
+          ]
+        },
+        "require": {
+          "field": "type",
+          "operator": "==",
+          "value": "fixed"
+        },
+        "expression": "each foreign-income applicant: type == fixed"
+      },
+      "remediation": "Count only fixed foreign income.",
+      "examples": [
+        {
+          "description": "Fixed DE income",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "X",
+                "type": "fixed",
+                "source_country": "Germany"
+              }
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Fixed foreign income."
+        },
+        {
+          "description": "Temp BE income",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "name": "X",
+                "type": "temporary",
+                "source_country": "Belgium"
+              }
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Foreign income not fixed."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-005",
+      "rule_name": "Perspectiefverklaring: minimum work history",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.2.1",
+      "description": "An agency worker's Perspectiefverklaring requires a minimum recent work history (about 14 months) and a certified agency.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Perspectiefverklaring valid: certified agency + >=14 months history."
+      },
+      "remediation": "Verify the agency certification and work history.",
+      "examples": [
+        {
+          "description": "Agency worker",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "temporary",
+                "perspectiefverklaring": true
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify perspectiefverklaring validity."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-006",
+      "rule_name": "Doctor/PhD in training on temporary contract",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.3",
+      "description": "Income of a doctor-in-training (AIOS/ANIOS) or PhD candidate on a temporary contract may count as stable under specific rules.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "AIOS/ANIOS/PhD temporary income assessed as stable per Ch.3.3."
+      },
+      "remediation": "Apply the dedicated assessment for trainees.",
+      "examples": [
+        {
+          "description": "AIOS contract",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "temporary",
+                "role": "AIOS"
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Manual trainee assessment."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-007",
+      "rule_name": "Salary increase within 6 months counts",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1",
+      "description": "A fixed, unconditional salary increase starting within 6 months may be included.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Unconditional increase starting <=6 months may be added to fixed income."
+      },
+      "remediation": "Include only if documented and unconditional.",
+      "examples": [
+        {
+          "description": "Raise in 3 months",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "salary_increase_months": 3
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify unconditional increase."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-008",
+      "rule_name": "Pension/AOW/lifelong annuity counts as fixed",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1",
+      "description": "Income from pension, AOW, or a guaranteed lifelong annuity counts as fixed income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Pension/AOW/guaranteed lifelong annuity counts as fixed income."
+      },
+      "remediation": "Provide pension overview / decision letters.",
+      "examples": [
+        {
+          "description": "Pension income",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "benefit",
+                "source": "pension"
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify pension documentation."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-009",
+      "rule_name": "Disability benefits (WAO/WAZ/IVA/Wajong) count",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.1",
+      "description": "Income from WAO, WAZ, IVA, and Wajong counts as fixed income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "WAO/WAZ/IVA/Wajong counted as fixed income."
+      },
+      "remediation": "Provide benefit decision letters.",
+      "examples": [
+        {
+          "description": "IVA benefit",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "benefit",
+                "source": "IVA"
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify benefit documentation."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-010",
+      "rule_name": "Income with an end date",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.6",
+      "description": "Income with an end date is treated under specific rules and may need robust income elsewhere.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Income with end date assessed per Ch.3.6."
+      },
+      "remediation": "Identify the end date and assess continuation.",
+      "examples": [
+        {
+          "description": "Fixed-term subsidy",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "income_end_date": "2028-01-01"
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Assess income end date."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-011",
+      "rule_name": "Employed under 3 months needs UWV + contract",
+      "category": "income",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.7",
+      "description": "If an applicant is employed < 3 months (or has a second job), the UWV-verzekeringsbericht and employment contract are required.",
+      "auto_evaluable": true,
+      "check": {
+        "for_each": "income.applicants",
+        "when": {
+          "field": "months_at_employer",
+          "operator": "<",
+          "value": 3
+        },
+        "require": {
+          "field": "documents",
+          "operator": "contains",
+          "value": "uwv_verzekeringsbericht",
+          "scope": "root"
+        },
+        "expression": "each <3-month applicant: 'uwv_verzekeringsbericht' in documents"
+      },
+      "remediation": "Request the UWV-verzekeringsbericht and contract.",
+      "examples": [
+        {
+          "description": "2 months + UWV",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "months_at_employer": 2
+              }
+            ],
+            "documents": [
+              "uwv_verzekeringsbericht"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "UWV report present."
+        },
+        {
+          "description": "2 months, no UWV",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "months_at_employer": 2
+              }
+            ],
+            "documents": []
+          },
+          "expected_status": "warning",
+          "expected_evidence": "UWV report missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-012",
+      "rule_name": "Rental income is not standard test income",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.9",
+      "description": "Income from rent is only counted under specific conditions.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Rental income only counted per Ch.3.9 conditions."
+      },
+      "remediation": "Assess rental income against the specific rules.",
+      "examples": [
+        {
+          "description": "Room rental",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "source": "rent"
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Assess rental income eligibility."
+        }
+      ]
+    },
+    {
+      "rule_id": "INC-013",
+      "rule_name": "Expense allowances excluded from test income",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.3.10",
+      "description": "Components meant for expenses/training are not freely disposable and are excluded from test income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Exclude expense/training allowances from test income."
+      },
+      "remediation": "Strip non-disposable components from income.",
+      "examples": [
+        {
+          "description": "Travel allowance",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "includes_expense_allowance": true
+              }
+            ]
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify excluded components."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-001",
+      "rule_name": "Self-employed income averaged over 3 years",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.2/4.3",
+      "description": "Self-employed test income = average over last 3 book years, capped at the most recent year.",
+      "auto_evaluable": true,
+      "check": {
+        "type": "manual_review",
+        "expression": "test_income = min(avg(last_3_years), last_year)",
+        "only_when": {
+          "field": "self_employed.years_active",
+          "operator": "exists"
+        }
+      },
+      "remediation": "Provide 3 full book years of figures.",
+      "examples": [
+        {
+          "description": "3 book years",
+          "application_excerpt": {
+            "self_employed.full_book_years": 3,
+            "self_employed.years_active": 5
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Compute average; manual."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-002",
+      "rule_name": "Starting entrepreneur haircut",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.5",
+      "description": "Active < 36 months: >=24 months -> 90% of average; >=12 months -> 75%. At least 1 full book year required.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.full_book_years",
+        "operator": ">=",
+        "value": 1,
+        "only_when": {
+          "field": "self_employed.years_active",
+          "operator": "exists"
+        },
+        "expression": "self_employed.full_book_years >= 1"
+      },
+      "remediation": "Provide >=1 full book year + accountant prognosis; apply 75%/90% haircut.",
+      "examples": [
+        {
+          "description": "1 book year",
+          "application_excerpt": {
+            "self_employed.years_active": 1.5,
+            "self_employed.full_book_years": 1
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Apply 75%."
+        },
+        {
+          "description": "No book year",
+          "application_excerpt": {
+            "self_employed.years_active": 0.3,
+            "self_employed.full_book_years": 0
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No full book year."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-003",
+      "rule_name": "No income from a foreign-based business",
+      "category": "income",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.1/4.4",
+      "description": "ASN never establishes income from a business based abroad.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.business_country",
+        "operator": "in",
+        "value": [
+          "Netherlands",
+          "NL",
+          null
+        ],
+        "expression": "business_country is NL or n/a"
+      },
+      "remediation": "Foreign-based business income cannot be used.",
+      "examples": [
+        {
+          "description": "Dutch BV",
+          "application_excerpt": {
+            "self_employed.business_country": "Netherlands"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "NL business."
+        },
+        {
+          "description": "Spanish business",
+          "application_excerpt": {
+            "self_employed.business_country": "Spain"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Foreign business income."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-004",
+      "rule_name": "Business liquidity (current ratio) >= 1",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.3",
+      "description": "For a business with legal personality the current ratio must be >= 1.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.current_ratio",
+        "operator": ">=",
+        "value": 1,
+        "only_when": {
+          "field": "self_employed.current_ratio",
+          "operator": "exists"
+        },
+        "expression": "current_ratio >= 1"
+      },
+      "remediation": "Improve liquidity or supply evidence supporting the ratio.",
+      "examples": [
+        {
+          "description": "Ratio 1.4",
+          "application_excerpt": {
+            "self_employed.current_ratio": 1.4
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Liquidity OK."
+        },
+        {
+          "description": "Ratio 0.7",
+          "application_excerpt": {
+            "self_employed.current_ratio": 0.7
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Current ratio below 1."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-005",
+      "rule_name": "Business solvency >= 20%",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.3",
+      "description": "For a business with legal personality the solvency must be >= 20%.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.solvency_pct",
+        "operator": ">=",
+        "value": 20,
+        "only_when": {
+          "field": "self_employed.solvency_pct",
+          "operator": "exists"
+        },
+        "expression": "solvency_pct >= 20"
+      },
+      "remediation": "Improve solvency or supply supporting evidence.",
+      "examples": [
+        {
+          "description": "Solvency 35%",
+          "application_excerpt": {
+            "self_employed.solvency_pct": 35
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Solvency OK."
+        },
+        {
+          "description": "Solvency 12%",
+          "application_excerpt": {
+            "self_employed.solvency_pct": 12
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Solvency below 20%."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-006",
+      "rule_name": "Simple legal structure (max 3 entities)",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.4",
+      "description": "The business must have a simple legal structure of at most 3 entities.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.entity_count",
+        "operator": "<=",
+        "value": 3,
+        "only_when": {
+          "field": "self_employed.entity_count",
+          "operator": "exists"
+        },
+        "expression": "entity_count <= 3"
+      },
+      "remediation": "Provide consolidated reports; complex structures may be rejected.",
+      "examples": [
+        {
+          "description": "2 entities",
+          "application_excerpt": {
+            "self_employed.entity_count": 2
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Simple structure."
+        },
+        {
+          "description": "5 entities",
+          "application_excerpt": {
+            "self_employed.entity_count": 5
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Too many entities."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-007",
+      "rule_name": "More than 2 minority participations = complex",
+      "category": "income",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.4.1",
+      "description": "With more than 2 minority participations the structure is complex and no business income is established.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "self_employed.minority_participations",
+        "operator": "<=",
+        "value": 2,
+        "only_when": {
+          "field": "self_employed.minority_participations",
+          "operator": "exists"
+        },
+        "expression": "minority_participations <= 2"
+      },
+      "remediation": "No business income with >2 minority participations.",
+      "examples": [
+        {
+          "description": "1 participation",
+          "application_excerpt": {
+            "self_employed.minority_participations": 1
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Acceptable."
+        },
+        {
+          "description": "3 participations",
+          "application_excerpt": {
+            "self_employed.minority_participations": 3
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Complex structure."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-008",
+      "rule_name": "Dividend not above profit after tax",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.3.1",
+      "description": "Distributed dividend counted may not exceed profit after corporate tax in the same year, with accountant confirmation.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "counted dividend <= profit after corporate tax; accountant confirms no harm to operations."
+      },
+      "remediation": "Provide accountant confirmation for dividend.",
+      "examples": [
+        {
+          "description": "Dividend within profit",
+          "application_excerpt": {
+            "self_employed.dividend_within_profit": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify accountant confirmation."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-009",
+      "rule_name": "Business income vs salaried (>=32h) cap 30%",
+      "category": "income",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.6",
+      "description": "If the applicant also has a salaried job of >=32h, business test income may not exceed 30% of the salaried annual income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "if salaried_hours >= 32: business_income <= 30% of salaried annual income."
+      },
+      "remediation": "Cap business income at 30% of salaried income.",
+      "examples": [
+        {
+          "description": "32h job + business",
+          "application_excerpt": {
+            "self_employed.also_salaried_hours": 36
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply 30% cap."
+        }
+      ]
+    },
+    {
+      "rule_id": "SE-010",
+      "rule_name": "Assessment statement when business income not needed",
+      "category": "income",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4.7",
+      "description": "If business income is not needed, a beoordelingsverklaring must confirm the business can be left out (losses may correct income).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "beoordelingsverklaring required when KvK registration income not used."
+      },
+      "remediation": "Obtain a beoordelingsverklaring.",
+      "examples": [
+        {
+          "description": "KvK reg not needed",
+          "application_excerpt": {
+            "self_employed.income_used": false
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Obtain assessment statement."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-001",
+      "rule_name": "Financing burden within allowed burden",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5",
+      "description": "Financing burden may not exceed the allowed burden (NIBUD/Trhk).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "affordability.financing_burden_annual",
+        "operator": "<=",
+        "value_field": "affordability.allowed_burden_annual",
+        "expression": "financing_burden_annual <= allowed_burden_annual"
+      },
+      "remediation": "Reduce loan/obligations so burden is within the allowed burden.",
+      "examples": [
+        {
+          "description": "Within",
+          "application_excerpt": {
+            "affordability.financing_burden_annual": 24600,
+            "affordability.allowed_burden_annual": 31000
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within allowance."
+        },
+        {
+          "description": "Exceeds",
+          "application_excerpt": {
+            "affordability.financing_burden_annual": 33000,
+            "affordability.allowed_burden_annual": 31000
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds allowance."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-002",
+      "rule_name": "Annuity-over-30-years test method",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.2.1",
+      "description": "The financing burden is always determined on an annuity basis over max 30 years, regardless of repayment type.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Burden computed as annuity over <=30 years using the test rate."
+      },
+      "remediation": "Apply the annuity test method.",
+      "examples": [
+        {
+          "description": "Interest-only loan",
+          "application_excerpt": {
+            "loan.repayment_type": "interest_only"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Annuity test still applies."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-003",
+      "rule_name": "Test rate by fixed-rate period",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.2.1",
+      "description": "Test rate = offer rate if fixed-rate period >= 120 months; otherwise the higher of the offer rate or the AFM test rate.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "RVP>=120m: test rate = offer rate; RVP<120m: max(offer rate, AFM test rate)."
+      },
+      "remediation": "Use the correct test rate for the fixed-rate period.",
+      "examples": [
+        {
+          "description": "20-year fixed",
+          "application_excerpt": {
+            "loan.fixed_rate_period_months": 240
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Test rate = offer rate."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-004",
+      "rule_name": "NIBUD financing-burden percentages",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.2.2",
+      "description": "Allowed burden uses the annual NIBUD financing-burden percentages from the Trhk, based on the highest test income and weighted test rate.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Use NIBUD percentages from the Trhk for the relevant year."
+      },
+      "remediation": "Apply current NIBUD percentages.",
+      "examples": [
+        {
+          "description": "Two incomes",
+          "application_excerpt": {
+            "income.toetsinkomen_annual": 110400
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply NIBUD table."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-005",
+      "rule_name": "Revolving credit test charge 2% of limit",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "A revolving credit (doorlopend krediet) is tested at 2% of the limit per month.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "revolving credit test charge = 2% of limit/month."
+      },
+      "remediation": "Apply 2% of the limit as the monthly test charge.",
+      "examples": [
+        {
+          "description": "Revolving 10k",
+          "application_excerpt": {
+            "liabilities.revolving_limit": 10000
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Test charge = 200/month."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-006",
+      "rule_name": "Reducing-balance BKR credit test charge",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "A reducing-balance BKR credit is tested at the registered amount divided by the term (actual charge).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "aflopend krediet test charge = BKR amount / term."
+      },
+      "remediation": "Apply registered amount divided by term.",
+      "examples": [
+        {
+          "description": "Personal loan",
+          "application_excerpt": {
+            "liabilities.personal_loan": 6500
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply BKR amount/term."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-007",
+      "rule_name": "Operational lease pre-2022 correction factor",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "Operational car lease is the BKR amount / term; BKR registrations before 1-4-2022 are corrected by dividing by 0.65.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "operational lease: BKR amount/term; pre-2022 registrations / 0.65."
+      },
+      "remediation": "Apply the 0.65 correction for pre-2022 lease registrations.",
+      "examples": [
+        {
+          "description": "Lease 2021",
+          "application_excerpt": {
+            "liabilities.lease_registration_year": 2021
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply 0.65 correction."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-008",
+      "rule_name": "Partner alimony reduces test income",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "Partner alimony payable is deducted from the applicant's test income before applying the percentage.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "partner alimony payable reduces test income."
+      },
+      "remediation": "Deduct partner alimony from test income.",
+      "examples": [
+        {
+          "description": "Pays partner alimony",
+          "application_excerpt": {
+            "liabilities.partner_alimony_monthly": 400
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Deduct from test income."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-009",
+      "rule_name": "Child alimony not deducted from income",
+      "category": "affordability",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "Child alimony payable is not deducted from test income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "child alimony NOT deducted from test income."
+      },
+      "remediation": "Do not deduct child alimony from income.",
+      "examples": [
+        {
+          "description": "Pays child alimony",
+          "application_excerpt": {
+            "liabilities.child_alimony_monthly": 300
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "No income deduction."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-010",
+      "rule_name": "Leasehold canon as annual obligation",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3",
+      "description": "An annual leasehold canon (erfpachtcanon) is taken into account as an obligation at its annual amount.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "erfpachtcanon counted as annual obligation."
+      },
+      "remediation": "Include the annual canon as an obligation.",
+      "examples": [
+        {
+          "description": "Canon 1200/yr",
+          "application_excerpt": {
+            "property.erfpacht_canon_annual": 1200
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Include canon obligation."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-011",
+      "rule_name": "Student debt tested at the term amount (DUO)",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.7",
+      "description": "A DUO student debt is tested at the term amount (grossed up under the Trhk where interest is deductible).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "student debt test charge = DUO term amount (grossed per Trhk)."
+      },
+      "remediation": "Apply the DUO term amount as the test charge.",
+      "examples": [
+        {
+          "description": "DUO debt",
+          "application_excerpt": {
+            "liabilities.student_debt": 9800
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply DUO term amount."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-012",
+      "rule_name": "Student debt: no payment-relief reduction",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.7.2",
+      "description": "No account is taken of an interest-only period or income-based reduction; the annuity term amount on the current debt/rate/term is used.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "ignore aflosvrije periode / draagkracht reduction; use annuity on current debt."
+      },
+      "remediation": "Compute the annuity term amount on current debt/rate/term.",
+      "examples": [
+        {
+          "description": "Reduced DUO payment",
+          "application_excerpt": {
+            "liabilities.student_debt_relief": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Use full annuity term amount."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-013",
+      "rule_name": "Family loan/gift construction conditions",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.4",
+      "description": "A family loan may be left out of the allowed burden only if it meets all leen-/schenk conditions (parents in private, written, market rate fixed >=10y, annuity/linear <=30y, within annual gift exemption, not callable).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "family loan excluded only if all leen-/schenk conditions are met."
+      },
+      "remediation": "Verify each leen-/schenk condition.",
+      "examples": [
+        {
+          "description": "Parental loan",
+          "application_excerpt": {
+            "liabilities.family_loan": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify all conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-014",
+      "rule_name": "Double charges affordability (bridging)",
+      "category": "affordability",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.5",
+      "description": "Double housing charges must be affordable within the allowed burden; otherwise own funds must cover them (existing build 6 months; new build 12-24 months).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "double charges within allowed burden or covered by own funds."
+      },
+      "remediation": "Demonstrate affordability or sufficient own funds for double charges.",
+      "examples": [
+        {
+          "description": "Old home unsold",
+          "application_excerpt": {
+            "affordability.double_charges": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Assess double-charge affordability."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-015",
+      "rule_name": "Own funds above EUR 15,000 must be proven",
+      "category": "affordability",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.6",
+      "description": "Own funds above EUR 15,000 (and always for NHG) must be evidenced.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "own funds > 15,000 (or any for NHG) must be proven."
+      },
+      "remediation": "Provide evidence of own funds.",
+      "examples": [
+        {
+          "description": "Needs 22k own funds",
+          "application_excerpt": {
+            "affordability.own_funds_required": 22000
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Provide proof of own funds."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-016",
+      "rule_name": "Foreign currency and crypto excluded as own funds",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.6",
+      "description": "Foreign currency and cryptocurrency are never counted as own funds.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "affordability.own_funds_in_crypto_or_fx",
+        "operator": "is_false",
+        "expression": "own funds not in crypto/foreign currency"
+      },
+      "remediation": "Convert/replace with eligible own funds.",
+      "examples": [
+        {
+          "description": "EUR savings",
+          "application_excerpt": {
+            "affordability.own_funds_in_crypto_or_fx": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Eligible own funds."
+        },
+        {
+          "description": "Crypto down payment",
+          "application_excerpt": {
+            "affordability.own_funds_in_crypto_or_fx": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Crypto not counted as own funds."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-017",
+      "rule_name": "Other mortgages test charge",
+      "category": "affordability",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.3.1",
+      "description": "Other (non-own-home) mortgages are tested at their annuity charge, or 2% of the original principal per month if data is insufficient.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "other mortgage test charge = annuity charge or 2% of original principal."
+      },
+      "remediation": "Provide details of other mortgages.",
+      "examples": [
+        {
+          "description": "Second mortgage",
+          "application_excerpt": {
+            "liabilities.other_mortgage": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Apply annuity/2% test charge."
+        }
+      ]
+    },
+    {
+      "rule_id": "AFF-018",
+      "rule_name": "DTI indicative threshold (proxy)",
+      "category": "affordability",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Pipeline proxy",
+      "description": "Optional debt-to-income proxy for pipelines supplying a DTI; ASN uses NIBUD burden, not a flat DTI.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "affordability.dti_pct",
+        "operator": "<=",
+        "value": 43,
+        "skip_when": {
+          "field": "affordability.dti_pct",
+          "operator": "not_exists"
+        },
+        "expression": "dti_pct <= 43 (if supplied)"
+      },
+      "remediation": "If DTI is high, rely on the NIBUD burden test (AFF-001).",
+      "examples": [
+        {
+          "description": "DTI 30%",
+          "application_excerpt": {
+            "affordability.dti_pct": 30
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within proxy."
+        },
+        {
+          "description": "DTI 50%",
+          "application_excerpt": {
+            "affordability.dti_pct": 50
+          },
+          "expected_status": "info",
+          "expected_evidence": "Above proxy; check NIBUD burden."
+        }
+      ]
+    },
+    {
+      "rule_id": "RES-001",
+      "rule_name": "Residual debt arose within 1 year",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.8.1",
+      "description": "A residual debt can be financed only if it arose less than 1 year before the new application (transfer date).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.residual_debt_age_months",
+        "operator": "<=",
+        "value": 12,
+        "only_when": {
+          "field": "loan.is_residual_debt",
+          "operator": "is_true"
+        },
+        "expression": "residual_debt_age_months <= 12"
+      },
+      "remediation": "Residual debt older than 1 year cannot be co-financed.",
+      "examples": [
+        {
+          "description": "8 months old",
+          "application_excerpt": {
+            "loan.is_residual_debt": true,
+            "loan.residual_debt_age_months": 8
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 1 year."
+        },
+        {
+          "description": "18 months old",
+          "application_excerpt": {
+            "loan.is_residual_debt": true,
+            "loan.residual_debt_age_months": 18
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Older than 1 year."
+        }
+      ]
+    },
+    {
+      "rule_id": "RES-002",
+      "rule_name": "Residual debt term max 15 years, linear",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.8.1",
+      "description": "Residual-debt financing has a max term of 15 years and must be repaid linearly, fully using the available burden.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.residual_debt_term_years",
+        "operator": "<=",
+        "value": 15,
+        "only_when": {
+          "field": "loan.is_residual_debt",
+          "operator": "is_true"
+        },
+        "expression": "residual_debt_term_years <= 15"
+      },
+      "remediation": "Set the residual-debt term to <=15 years, linear repayment.",
+      "examples": [
+        {
+          "description": "12-year linear",
+          "application_excerpt": {
+            "loan.is_residual_debt": true,
+            "loan.residual_debt_term_years": 12
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 15 years."
+        },
+        {
+          "description": "20-year term",
+          "application_excerpt": {
+            "loan.is_residual_debt": true,
+            "loan.residual_debt_term_years": 20
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 15 years."
+        }
+      ]
+    },
+    {
+      "rule_id": "RES-003",
+      "rule_name": "External residual debt capped at EUR 30,000",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.8.1",
+      "description": "Financing a residual debt that did not arise at an ASN brand is capped at EUR 30,000.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.external_residual_debt_amount",
+        "operator": "<=",
+        "value": 30000,
+        "only_when": {
+          "field": "loan.external_residual_debt_amount",
+          "operator": "exists"
+        },
+        "expression": "external_residual_debt_amount <= 30000"
+      },
+      "remediation": "Cap external residual-debt financing at EUR 30,000.",
+      "examples": [
+        {
+          "description": "External 25k",
+          "application_excerpt": {
+            "loan.external_residual_debt_amount": 25000
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within cap."
+        },
+        {
+          "description": "External 40k",
+          "application_excerpt": {
+            "loan.external_residual_debt_amount": 40000
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds EUR 30,000."
+        }
+      ]
+    },
+    {
+      "rule_id": "RES-004",
+      "rule_name": "WOZ valuation not allowed with bridging",
+      "category": "loan",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.5.8.4",
+      "description": "A WOZ valuation is never allowed to value the home to be sold when a bridging loan is requested.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "WOZ valuation forbidden for sold-home value when bridging."
+      },
+      "remediation": "Use a validated valuation or sale price instead.",
+      "examples": [
+        {
+          "description": "Bridging + WOZ",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "valuation.method": "WOZ"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "WOZ not allowed with bridging."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-001",
+      "rule_name": "House located in the Netherlands",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "ASN finances only a home located in the Netherlands.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.country",
+        "operator": "in",
+        "value": [
+          "Netherlands",
+          "NL"
+        ],
+        "expression": "property.country == NL"
+      },
+      "remediation": "Property must be in NL.",
+      "examples": [
+        {
+          "description": "Utrecht",
+          "application_excerpt": {
+            "property.country": "Netherlands"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "In NL."
+        },
+        {
+          "description": "Antwerp",
+          "application_excerpt": {
+            "property.country": "Belgium"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not in NL."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-002",
+      "rule_name": "Permanent residential zoning",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must be zoned by the municipality for permanent habitation.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.permanent_residential_zoning",
+        "operator": "is_true",
+        "expression": "permanent_residential_zoning == true"
+      },
+      "remediation": "Confirm permanent residential zoning.",
+      "examples": [
+        {
+          "description": "Residential",
+          "application_excerpt": {
+            "property.permanent_residential_zoning": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Residential zoning."
+        },
+        {
+          "description": "Recreational zoning",
+          "application_excerpt": {
+            "property.permanent_residential_zoning": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not zoned for permanent habitation."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-003",
+      "rule_name": "Not on a commercial/industrial estate",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must not be located on a commercial or industrial estate.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.on_industrial_estate",
+        "operator": "is_false",
+        "expression": "on_industrial_estate == false"
+      },
+      "remediation": "Property cannot be on a commercial/industrial estate.",
+      "examples": [
+        {
+          "description": "Residential street",
+          "application_excerpt": {
+            "property.on_industrial_estate": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Not industrial."
+        },
+        {
+          "description": "Industrial estate",
+          "application_excerpt": {
+            "property.on_industrial_estate": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "On industrial estate."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-004",
+      "rule_name": "Clean soil",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must stand on clean (non-contaminated) ground.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.clean_soil",
+        "operator": "is_true",
+        "expression": "clean_soil == true"
+      },
+      "remediation": "Provide evidence of clean soil.",
+      "examples": [
+        {
+          "description": "Clean soil",
+          "application_excerpt": {
+            "property.clean_soil": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Clean soil."
+        },
+        {
+          "description": "Contaminated",
+          "application_excerpt": {
+            "property.clean_soil": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Soil not clean."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-005",
+      "rule_name": "Fixed structure with own foundation",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must be permanently fixed with its own foundation (cannot roll or float).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.fixed_with_foundation",
+        "operator": "is_true",
+        "expression": "fixed_with_foundation == true"
+      },
+      "remediation": "Only fixed homes with own foundation are eligible.",
+      "examples": [
+        {
+          "description": "Brick house",
+          "application_excerpt": {
+            "property.fixed_with_foundation": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Fixed with foundation."
+        },
+        {
+          "description": "Houseboat",
+          "application_excerpt": {
+            "property.fixed_with_foundation": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not fixed / no foundation."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-006",
+      "rule_name": "Marketability max 12 months",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must have a marketability (courantheid) of at most 12 months.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.marketability_months",
+        "operator": "<=",
+        "value": 12,
+        "only_when": {
+          "field": "property.marketability_months",
+          "operator": "exists"
+        },
+        "expression": "marketability_months <= 12"
+      },
+      "remediation": "Property must be sellable within 12 months.",
+      "examples": [
+        {
+          "description": "8 months",
+          "application_excerpt": {
+            "property.marketability_months": 8
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Marketable."
+        },
+        {
+          "description": "18 months",
+          "application_excerpt": {
+            "property.marketability_months": 18
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Marketability over 12 months."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-007",
+      "rule_name": "Minimum living area 30 m2",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must have a minimum living area of 30 m2.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.living_area_m2",
+        "operator": ">=",
+        "value": 30,
+        "only_when": {
+          "field": "property.living_area_m2",
+          "operator": "exists"
+        },
+        "expression": "living_area_m2 >= 30"
+      },
+      "remediation": "Homes under 30 m2 are not eligible.",
+      "examples": [
+        {
+          "description": "85 m2",
+          "application_excerpt": {
+            "property.living_area_m2": 85
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Above minimum."
+        },
+        {
+          "description": "24 m2 studio",
+          "application_excerpt": {
+            "property.living_area_m2": 24
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Below 30 m2."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-008",
+      "rule_name": "No unacceptable easements/leasehold conditions",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The land must not carry unacceptable easements or leasehold conditions.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.unacceptable_easements",
+        "operator": "is_false",
+        "expression": "unacceptable_easements == false"
+      },
+      "remediation": "Resolve or clarify any unacceptable easements.",
+      "examples": [
+        {
+          "description": "No issues",
+          "application_excerpt": {
+            "property.unacceptable_easements": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Clean title."
+        },
+        {
+          "description": "Mandatory rental clause",
+          "application_excerpt": {
+            "property.unacceptable_easements": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Unacceptable easement."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-009",
+      "rule_name": "Fully self-contained dwelling",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "The home must be fully self-contained: own front door, kitchen, toilet, and bathroom.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.self_contained",
+        "operator": "is_true",
+        "expression": "self_contained == true"
+      },
+      "remediation": "Only fully self-contained dwellings are eligible.",
+      "examples": [
+        {
+          "description": "Self-contained",
+          "application_excerpt": {
+            "property.self_contained": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Own door/kitchen/wc/bath."
+        },
+        {
+          "description": "Shared kitchen",
+          "application_excerpt": {
+            "property.self_contained": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Not self-contained."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-010",
+      "rule_name": "Owner changed within 12 months -> extra investigation",
+      "category": "property",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1",
+      "description": "If the home changed owner in the 12 months before transfer, extra investigation is required (except inheritance/foundation buy-back).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.owner_changed_last_12m",
+        "operator": "is_false",
+        "expression": "owner_changed_last_12m == false (else extra investigation)"
+      },
+      "remediation": "Perform extra investigation into the recent ownership change.",
+      "examples": [
+        {
+          "description": "Stable ownership",
+          "application_excerpt": {
+            "property.owner_changed_last_12m": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No recent flip."
+        },
+        {
+          "description": "Recently flipped",
+          "application_excerpt": {
+            "property.owner_changed_last_12m": true
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Recent ownership change; investigate."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-011",
+      "rule_name": "Building condition at least reasonable",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1.1",
+      "description": "The whole home's building condition must be at least reasonable per the valuation; otherwise a structural report and bouwdepot are required.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "building condition >= reasonable, else bouwkundig rapport + bouwdepot."
+      },
+      "remediation": "Provide a structural report and reserve maintenance in a bouwdepot.",
+      "examples": [
+        {
+          "description": "Reasonable condition",
+          "application_excerpt": {
+            "property.building_condition": "reasonable"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify valuation condition."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-012",
+      "rule_name": "Poor element threshold EUR 2,500 to bouwdepot",
+      "category": "property",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.1.1",
+      "description": "If a single element is poor/moderate, the estimated direct cost is reserved in a bouwdepot above a EUR 2,500 threshold.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "poor element cost reserved in bouwdepot above EUR 2,500."
+      },
+      "remediation": "Reserve the estimated repair cost in a bouwdepot.",
+      "examples": [
+        {
+          "description": "Roof moderate",
+          "application_excerpt": {
+            "property.element_repair_cost": 4000
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Reserve in bouwdepot."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-013",
+      "rule_name": "Apartment requires active VVE and reserves",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.2",
+      "description": "For an apartment there must be an active VVE with a long-term maintenance plan and an annual reservation of at least 0.5% of rebuild value.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.vve_active",
+        "operator": "is_true",
+        "only_when": {
+          "field": "property.type",
+          "operator": "in",
+          "value": [
+            "apartment",
+            "appartement"
+          ]
+        },
+        "expression": "apartment -> vve_active == true (+ MJOP + >=0.5% reserve)"
+      },
+      "remediation": "Provide proof of an active VVE, MJOP, and reserves.",
+      "examples": [
+        {
+          "description": "Active VVE",
+          "application_excerpt": {
+            "property.type": "apartment",
+            "property.vve_active": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Active VVE."
+        },
+        {
+          "description": "No VVE",
+          "application_excerpt": {
+            "property.type": "apartment",
+            "property.vve_active": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No active VVE."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-014",
+      "rule_name": "New build needs definitive permit",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.3",
+      "description": "New build requires a definitive environmental permit (omgevingsvergunning).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.definitive_permit",
+        "operator": "is_true",
+        "only_when": {
+          "field": "property.is_new_build",
+          "operator": "is_true"
+        },
+        "expression": "new build -> definitive_permit == true"
+      },
+      "remediation": "Obtain the definitive omgevingsvergunning.",
+      "examples": [
+        {
+          "description": "Permit granted",
+          "application_excerpt": {
+            "property.is_new_build": true,
+            "property.definitive_permit": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Permit in place."
+        },
+        {
+          "description": "No permit",
+          "application_excerpt": {
+            "property.is_new_build": true,
+            "property.definitive_permit": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No definitive permit."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-015",
+      "rule_name": "Project build needs completion guarantee",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.3",
+      "description": "Project-built new homes require a completion guarantee / warranty certificate (afbouwgarantie/waarborgcertificaat).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.completion_guarantee",
+        "operator": "is_true",
+        "only_when": {
+          "field": "property.build_type",
+          "operator": "==",
+          "value": "projectbouw"
+        },
+        "expression": "projectbouw -> completion_guarantee == true"
+      },
+      "remediation": "Provide afbouwgarantie/waarborgcertificaat for project build.",
+      "examples": [
+        {
+          "description": "Warranty present",
+          "application_excerpt": {
+            "property.build_type": "projectbouw",
+            "property.completion_guarantee": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Guarantee present."
+        },
+        {
+          "description": "No warranty",
+          "application_excerpt": {
+            "property.build_type": "projectbouw",
+            "property.completion_guarantee": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No completion guarantee."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-016",
+      "rule_name": "CPO max 80% LTV + CAR insurance",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.3.1",
+      "description": "CPO without warranty: max 80% LTV (and 80% income-based) with CAR insurance for the whole build.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 80,
+        "only_when": {
+          "field": "property.build_type",
+          "operator": "==",
+          "value": "CPO"
+        },
+        "expression": "CPO -> ltv_pct <= 80"
+      },
+      "remediation": "Cap CPO LTV at 80% and arrange CAR insurance.",
+      "examples": [
+        {
+          "description": "CPO 78%",
+          "application_excerpt": {
+            "property.build_type": "CPO",
+            "loan.ltv_pct": 78
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 80%."
+        },
+        {
+          "description": "CPO 95%",
+          "application_excerpt": {
+            "property.build_type": "CPO",
+            "loan.ltv_pct": 95
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 80%."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-017",
+      "rule_name": "Prefab without warranty conditions",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.3.2",
+      "description": "Prefab without warranty: max 90% income-based, builder affiliated to Bouwgarant/Woningborg, payment afterward, CAR insurance.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "prefab: <=90% income norm, Bouwgarant/Woningborg, pay after delivery, CAR."
+      },
+      "remediation": "Verify prefab conditions.",
+      "examples": [
+        {
+          "description": "Prefab build",
+          "application_excerpt": {
+            "property.build_type": "prefab"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify prefab conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-018",
+      "rule_name": "Self-managed/self-build max 80% LTV",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.3.3/6.3.4",
+      "description": "Bouw in eigen beheer / zelfbouw without warranty: max 80% LTV with a building budget and CAR insurance.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 80,
+        "only_when": {
+          "field": "property.build_type",
+          "operator": "in",
+          "value": [
+            "eigen_beheer",
+            "zelfbouw"
+          ]
+        },
+        "expression": "eigen_beheer/zelfbouw -> ltv_pct <= 80"
+      },
+      "remediation": "Cap LTV at 80% with building budget and CAR insurance.",
+      "examples": [
+        {
+          "description": "Zelfbouw 75%",
+          "application_excerpt": {
+            "property.build_type": "zelfbouw",
+            "loan.ltv_pct": 75
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 80%."
+        },
+        {
+          "description": "Zelfbouw 88%",
+          "application_excerpt": {
+            "property.build_type": "zelfbouw",
+            "loan.ltv_pct": 88
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 80%."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-019",
+      "rule_name": "Cooperative ownership conditions",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.4",
+      "description": "Cooperative ownership requires an own membership right pledged by notarial deed, an association of >=25 apartments, and professional management.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.cooperative_min_25_units",
+        "operator": "is_true",
+        "only_when": {
+          "field": "property.ownership_form",
+          "operator": "==",
+          "value": "cooperative"
+        },
+        "expression": "cooperative -> >=25 units (+ pledge + professional mgmt)"
+      },
+      "remediation": "Verify cooperative association size and governance.",
+      "examples": [
+        {
+          "description": "30-unit coop",
+          "application_excerpt": {
+            "property.ownership_form": "cooperative",
+            "property.cooperative_min_25_units": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Qualifying coop."
+        },
+        {
+          "description": "12-unit coop",
+          "application_excerpt": {
+            "property.ownership_form": "cooperative",
+            "property.cooperative_min_25_units": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Coop under 25 units."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-020",
+      "rule_name": "No additional/bridge loan on cooperative ownership",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.4",
+      "description": "A higher inschrijving, follow-up, or bridging mortgage is never possible with cooperative ownership.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "no higher inschrijving/vervolg/overbrugging for cooperative ownership."
+      },
+      "remediation": "These products are not available for cooperative ownership.",
+      "examples": [
+        {
+          "description": "Coop + bridge",
+          "application_excerpt": {
+            "property.ownership_form": "cooperative",
+            "loan.bridging": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Not allowed for coop."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-021",
+      "rule_name": "Kangaroo/care home single ownership",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.5",
+      "description": "Kangaroo/care homes are financed only as 2 self-contained units on 1 cadastral whole owned by 1 owner (or 2 with a durable relationship).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "kangaroo/care home: 2 units, 1 cadastral whole, single owner who can pay."
+      },
+      "remediation": "Verify single ownership of the combined property.",
+      "examples": [
+        {
+          "description": "Care annex",
+          "application_excerpt": {
+            "property.type": "mantelzorgwoning"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify ownership structure."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-022",
+      "rule_name": "Partial residential zoning >= 60% residential",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.6",
+      "description": "With partial business/agricultural zoning the residential part must be >=60% of total market value (split NWWI valuation); business part financed max 70%.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.residential_value_pct",
+        "operator": ">=",
+        "value": 60,
+        "only_when": {
+          "field": "property.has_business_part",
+          "operator": "is_true"
+        },
+        "expression": "business part -> residential_value_pct >= 60"
+      },
+      "remediation": "Provide a split NWWI valuation; finance the business part at <=70%.",
+      "examples": [
+        {
+          "description": "70% residential",
+          "application_excerpt": {
+            "property.has_business_part": true,
+            "property.residential_value_pct": 70
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Residential majority."
+        },
+        {
+          "description": "40% residential",
+          "application_excerpt": {
+            "property.has_business_part": true,
+            "property.residential_value_pct": 40
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Residential below 60%."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-023",
+      "rule_name": "No mandatory land buy-back (erfpacht)",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.7",
+      "description": "ASN does not lend when there is a pre-agreed mandatory/minimum buy-back price for the land.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "property.mandatory_land_buyback",
+        "operator": "is_false",
+        "expression": "mandatory_land_buyback == false"
+      },
+      "remediation": "Mandatory land buy-back constructions are not eligible.",
+      "examples": [
+        {
+          "description": "No buy-back",
+          "application_excerpt": {
+            "property.mandatory_land_buyback": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No mandatory buy-back."
+        },
+        {
+          "description": "Buy-back clause",
+          "application_excerpt": {
+            "property.mandatory_land_buyback": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Mandatory land buy-back."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-024",
+      "rule_name": "Government leasehold canon fixed >= 10 years",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.7.1",
+      "description": "For government-issued leasehold, the canon must be fixed for at least 10 more years, or the new canon must be known.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "government erfpacht: canon fixed >=10y or new canon known."
+      },
+      "remediation": "Confirm canon fixity or the future canon level.",
+      "examples": [
+        {
+          "description": "Municipal leasehold",
+          "application_excerpt": {
+            "property.erfpacht_issuer": "municipality"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify canon fixity."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-025",
+      "rule_name": "Private leasehold conditions (pre/post 2013)",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.7.2",
+      "description": "Private leasehold needs a green erfpacht opinion (pre-2013) or KNB-model perpetual conditions (post-2013), with future canon known.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "private erfpacht: green opinion (pre-2013) or KNB model perpetual (post-2013)."
+      },
+      "remediation": "Provide the erfpacht opinion / KNB-conform conditions.",
+      "examples": [
+        {
+          "description": "Private leasehold",
+          "application_excerpt": {
+            "property.erfpacht_issuer": "private"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify leasehold conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-026",
+      "rule_name": "Groninger akte conditions",
+      "category": "property",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.8",
+      "description": "A Groninger akte is accepted only if no other dissolving/suspensive conditions are attached to the purchase (notary verifies).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Groninger akte accepted if no other conditions remain at transfer."
+      },
+      "remediation": "Confirm no other purchase conditions remain.",
+      "examples": [
+        {
+          "description": "Groninger akte",
+          "application_excerpt": {
+            "property.groninger_akte": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Notary verifies conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "HOUSE-027",
+      "rule_name": "Buyer-support (koperssteun) needs NHG approval",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.6.9",
+      "description": "Buyer-support constructions are accepted only with NHG and NHG approval of the construction at the binding offer.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "koperssteun: NHG requested and construction NHG-approved."
+      },
+      "remediation": "Confirm NHG approval of the construction.",
+      "examples": [
+        {
+          "description": "Koperssteun",
+          "application_excerpt": {
+            "property.buyer_support": true,
+            "nhg_requested": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify NHG approval."
+        }
+      ]
+    },
+    {
+      "rule_id": "REC-001",
+      "rule_name": "Recreational home valuation required",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.7.1",
+      "description": "A valuation report is mandatory for a recreational home.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "taxatierapport",
+        "only_when": {
+          "field": "property.type",
+          "operator": "in",
+          "value": [
+            "recreational",
+            "recreatiewoning"
+          ]
+        },
+        "expression": "recreational -> taxatierapport in documents"
+      },
+      "remediation": "Provide a valuation report for the recreational home.",
+      "examples": [
+        {
+          "description": "Recreational + taxatie",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "documents": [
+              "taxatierapport"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Valuation present."
+        },
+        {
+          "description": "Recreational, no taxatie",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "documents": []
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Valuation missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "REC-002",
+      "rule_name": "Recreational home LTV max 70%",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.7.1",
+      "description": "A recreational home may be financed up to 70% of market value.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 70,
+        "only_when": {
+          "field": "property.type",
+          "operator": "in",
+          "value": [
+            "recreational",
+            "recreatiewoning"
+          ]
+        },
+        "expression": "recreational -> ltv_pct <= 70"
+      },
+      "remediation": "Cap recreational LTV at 70%.",
+      "examples": [
+        {
+          "description": "65%",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "loan.ltv_pct": 65
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 70%."
+        },
+        {
+          "description": "80%",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "loan.ltv_pct": 80
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 70%."
+        }
+      ]
+    },
+    {
+      "rule_id": "REC-003",
+      "rule_name": "Recreational home fully amortising",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.7.1",
+      "description": "A recreational-home mortgage must be repaid fully on an annuity or linear basis.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.repayment_type",
+        "operator": "in",
+        "value": [
+          "annuity",
+          "linear"
+        ],
+        "only_when": {
+          "field": "property.type",
+          "operator": "in",
+          "value": [
+            "recreational",
+            "recreatiewoning"
+          ]
+        },
+        "expression": "recreational -> repayment_type in {annuity, linear}"
+      },
+      "remediation": "Use annuity/linear repayment for recreational homes.",
+      "examples": [
+        {
+          "description": "Annuity",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "loan.repayment_type": "annuity"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Amortising."
+        },
+        {
+          "description": "Interest-only",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "loan.repayment_type": "interest_only"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Interest-only not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "REC-004",
+      "rule_name": "No bridging on a recreational home",
+      "category": "property",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.7.1",
+      "description": "A bridging loan on a recreational home is not possible.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "no bridging loan secured on a recreational home."
+      },
+      "remediation": "Bridging is not available for recreational homes.",
+      "examples": [
+        {
+          "description": "Recreational + bridge",
+          "application_excerpt": {
+            "property.type": "recreatiewoning",
+            "loan.bridging": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Bridging not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "REC-005",
+      "rule_name": "Recreational construction and connection",
+      "category": "property",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.7.2",
+      "description": "A recreational home must be of stone (or wood if built >=2020), non-movable, and connected to water and electricity, with recreational zoning.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "recreational home: stone (or wood >=2020), fixed, utilities connected, recreational zoning."
+      },
+      "remediation": "Verify construction, connections, and zoning.",
+      "examples": [
+        {
+          "description": "Stone chalet",
+          "application_excerpt": {
+            "property.type": "recreatiewoning"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify construction/zoning."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-001",
+      "rule_name": "NWWI taxatie required above EUR 1,000,000",
+      "category": "valuation",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.1",
+      "description": "A validated NWWI valuation report is required when the total mortgage on the home exceeds EUR 1,000,000.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "taxatierapport",
+        "only_when": {
+          "field": "loan.amount",
+          "operator": ">",
+          "value": 1000000
+        },
+        "expression": "loan.amount > 1,000,000 -> taxatierapport in documents"
+      },
+      "remediation": "Provide a validated NWWI valuation report.",
+      "examples": [
+        {
+          "description": "1.2M + taxatie",
+          "application_excerpt": {
+            "loan.amount": 1200000,
+            "documents": [
+              "taxatierapport"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Valuation present."
+        },
+        {
+          "description": "1.2M, no taxatie",
+          "application_excerpt": {
+            "loan.amount": 1200000,
+            "documents": []
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Valuation required above 1M."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-002",
+      "rule_name": "Validation mandatory when possible",
+      "category": "valuation",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.1",
+      "description": "If validation of the valuation report is possible, it is mandatory.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "if validation possible -> validated report required."
+      },
+      "remediation": "Use a validated valuation report.",
+      "examples": [
+        {
+          "description": "Standard purchase",
+          "application_excerpt": {
+            "valuation.method": "taxatierapport"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Ensure validation."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-003",
+      "rule_name": "Calcasa desktop valuation conditions",
+      "category": "valuation",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.2",
+      "description": "Calcasa desktop valuation is allowed only if the total mortgage is <= EUR 1,000,000, the home is >= 2 years old, there is no leasehold/opstal, and the application fits the standard norm.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Calcasa allowed: <=1,000,000, home >=2y, no erfpacht/opstal, standaardnorm."
+      },
+      "remediation": "Use a full valuation if Calcasa conditions are not met.",
+      "examples": [
+        {
+          "description": "Calcasa used",
+          "application_excerpt": {
+            "valuation.method": "calcasa"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify Calcasa conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-004",
+      "rule_name": "Calcasa max 90% of value",
+      "category": "valuation",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.2",
+      "description": "With a Calcasa desktop valuation the total mortgage may not exceed 90% of the assessed market value.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 90,
+        "only_when": {
+          "field": "valuation.method",
+          "operator": "==",
+          "value": "calcasa"
+        },
+        "expression": "calcasa -> ltv_pct <= 90"
+      },
+      "remediation": "Cap LTV at 90% when using Calcasa, or get a full valuation.",
+      "examples": [
+        {
+          "description": "Calcasa 85%",
+          "application_excerpt": {
+            "valuation.method": "calcasa",
+            "loan.ltv_pct": 85
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 90%."
+        },
+        {
+          "description": "Calcasa 100%",
+          "application_excerpt": {
+            "valuation.method": "calcasa",
+            "loan.ltv_pct": 100
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 90% with Calcasa."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-005",
+      "rule_name": "Purchase price below market -> price is basis",
+      "category": "valuation",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.4",
+      "description": "If the purchase price is below the appraised market value, the purchase price is the basis (value after renovation if applicable); tariff group uses appraised value.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "if koopsom < market value: use koopsom as basis."
+      },
+      "remediation": "Use the purchase price as the financing basis.",
+      "examples": [
+        {
+          "description": "Price below value",
+          "application_excerpt": {
+            "loan.purchase_price": 450000,
+            "property.market_value": 470000
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Use purchase price."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-006",
+      "rule_name": "Auction purchase uses appraised value",
+      "category": "valuation",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.5",
+      "description": "For an auction purchase the appraised market value is the basis; surplus is held in a bouwdepot for quality improvement.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "auction: appraised value basis; surplus to bouwdepot."
+      },
+      "remediation": "Hold surplus in a bouwdepot for improvements.",
+      "examples": [
+        {
+          "description": "Auction buy",
+          "application_excerpt": {
+            "loan.auction_purchase": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Use appraised value."
+        }
+      ]
+    },
+    {
+      "rule_id": "VAL-007",
+      "rule_name": "Renovation value only from valuation",
+      "category": "valuation",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8.1.1",
+      "description": "Value after renovation is used only if it follows from a valuation report; otherwise the pre-renovation value applies, with funds held in a bouwdepot.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "post-renovation value only from valuation; else pre-renovation value."
+      },
+      "remediation": "Provide a valuation stating the after-renovation value.",
+      "examples": [
+        {
+          "description": "Renovation planned",
+          "application_excerpt": {
+            "loan.renovation": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify after-renovation value."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-001",
+      "rule_name": "Bouwdepot pays only on proof of payment",
+      "category": "bouwdepot",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.2",
+      "description": "Funds are paid from the bouwdepot only against a valid proof of payment, never against quotes.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "bouwdepot payments only against invoices/receipts, not quotes."
+      },
+      "remediation": "Submit invoices/receipts for bouwdepot payments.",
+      "examples": [
+        {
+          "description": "Quote submitted",
+          "application_excerpt": {
+            "bouwdepot.proof_type": "quote"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Quotes are not paid out."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-002",
+      "rule_name": "Invoice not older than 6 months",
+      "category": "bouwdepot",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.2",
+      "description": "An invoice/receipt may not be older than 6 months when submitted; for NHG it must be dated after the application date.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "invoice <=6 months old (NHG: after application date)."
+      },
+      "remediation": "Submit invoices within 6 months.",
+      "examples": [
+        {
+          "description": "4-month invoice",
+          "application_excerpt": {
+            "bouwdepot.invoice_age_months": 4
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Within 6 months."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-003",
+      "rule_name": "Prepayments capped at EUR 5,000",
+      "category": "bouwdepot",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.3",
+      "description": "Prepayments from a bouwdepot are capped at EUR 5,000 (kitchens/bathrooms: 15% of purchase, max EUR 5,000).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "prepayment <= EUR 5,000 (kitchens/bathrooms 15% max 5,000)."
+      },
+      "remediation": "Cap prepayments at EUR 5,000.",
+      "examples": [
+        {
+          "description": "Kitchen deposit",
+          "application_excerpt": {
+            "bouwdepot.prepayment": 4500
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Within cap."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-004",
+      "rule_name": "Bouwdepot duration",
+      "category": "bouwdepot",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.4",
+      "description": "Bouwdepot duration: 1 year for existing build (auto +1y), 2 years for new build (extendable by 1y).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "bouwdepot duration: existing 1y(+1), new build 2y(+1)."
+      },
+      "remediation": "Track the bouwdepot term and remaining balance.",
+      "examples": [
+        {
+          "description": "New build depot",
+          "application_excerpt": {
+            "property.is_new_build": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "2-year duration."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-005",
+      "rule_name": "No interest-rate change during bouwdepot",
+      "category": "bouwdepot",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.4.2",
+      "description": "The interest rate is not adjusted during the bouwdepot term.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "no rate change during bouwdepot term."
+      },
+      "remediation": "Rate is fixed for the bouwdepot term.",
+      "examples": [
+        {
+          "description": "Depot active",
+          "application_excerpt": {
+            "bouwdepot.active": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "No rate change."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-006",
+      "rule_name": "Leftover energy reservation must be repaid",
+      "category": "bouwdepot",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.5",
+      "description": "Any remaining reserved energy-saving funds may not be reused and must be repaid on the mortgage.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "remaining energy reservation repaid, not reused."
+      },
+      "remediation": "Repay leftover energy funds on the mortgage.",
+      "examples": [
+        {
+          "description": "Energy funds left",
+          "application_excerpt": {
+            "bouwdepot.energy_remaining": 2000
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Repay on mortgage."
+        }
+      ]
+    },
+    {
+      "rule_id": "DEP-007",
+      "rule_name": "Interest-financing account max 2 years, separate part",
+      "category": "bouwdepot",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.9.6",
+      "description": "A rentefinancieringsrekening (new build only) lasts max 2 years and is always a separate loan part.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "rentefinancieringsrekening: <=2y, always separate loan part."
+      },
+      "remediation": "Set up the interest-financing account as a separate loan part.",
+      "examples": [
+        {
+          "description": "New build interest acct",
+          "application_excerpt": {
+            "bouwdepot.interest_account": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Separate loan part."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-001",
+      "rule_name": "Maximum total mortgage EUR 3,000,000",
+      "category": "loan",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.2",
+      "description": "The total mortgage may never exceed EUR 3,000,000 (bridging excluded).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.amount",
+        "operator": "<=",
+        "value": 3000000,
+        "expression": "loan.amount <= 3,000,000"
+      },
+      "remediation": "Reduce the loan to at most EUR 3,000,000.",
+      "examples": [
+        {
+          "description": "1.5M loan",
+          "application_excerpt": {
+            "loan.amount": 1500000
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within max."
+        },
+        {
+          "description": "3.4M loan",
+          "application_excerpt": {
+            "loan.amount": 3400000
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds EUR 3,000,000."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-002",
+      "rule_name": "Term between 5 and 30 years",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.3",
+      "description": "The mortgage term is minimum 5 and maximum 30 years (individual parts may be shorter).",
+      "auto_evaluable": true,
+      "check": {
+        "all_of": [
+          {
+            "field": "loan.term_years",
+            "operator": ">=",
+            "value": 5
+          },
+          {
+            "field": "loan.term_years",
+            "operator": "<=",
+            "value": 30
+          }
+        ],
+        "expression": "5 <= loan.term_years <= 30"
+      },
+      "remediation": "Set the term within 5-30 years.",
+      "examples": [
+        {
+          "description": "30 years",
+          "application_excerpt": {
+            "loan.term_years": 30
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within range."
+        },
+        {
+          "description": "35 years",
+          "application_excerpt": {
+            "loan.term_years": 35
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 30 years."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-003",
+      "rule_name": "Follow-up only behind own mortgage",
+      "category": "loan",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.4",
+      "description": "ASN never lends behind a mortgage that is not held at one of its brands.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.behind_external_mortgage",
+        "operator": "is_false",
+        "expression": "behind_external_mortgage == false"
+      },
+      "remediation": "A follow-up requires an existing ASN-brand first mortgage.",
+      "examples": [
+        {
+          "description": "First mortgage at ASN",
+          "application_excerpt": {
+            "loan.behind_external_mortgage": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No external first mortgage."
+        },
+        {
+          "description": "Behind external",
+          "application_excerpt": {
+            "loan.behind_external_mortgage": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Cannot lend behind external mortgage."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-001",
+      "rule_name": "Maximum LTV 100% (regular)",
+      "category": "loan_to_value",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.5",
+      "description": "A regular mortgage may not exceed 100% of market value unless the sustainability uplift applies.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 100,
+        "skip_when": {
+          "field": "loan.sustainability_financed",
+          "operator": "is_true"
+        },
+        "expression": "ltv_pct <= 100 unless sustainability"
+      },
+      "remediation": "Reduce to <=100% or qualify for the 106% uplift.",
+      "examples": [
+        {
+          "description": "96%",
+          "application_excerpt": {
+            "loan.ltv_pct": 96,
+            "loan.sustainability_financed": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 100%."
+        },
+        {
+          "description": "103% no sustainability",
+          "application_excerpt": {
+            "loan.ltv_pct": 103,
+            "loan.sustainability_financed": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 100%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-002",
+      "rule_name": "Maximum LTV 106% with sustainability",
+      "category": "loan_to_value",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.5",
+      "description": "With sustainability measures the LTV may go up to 106% of market value.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 106,
+        "only_when": {
+          "field": "loan.sustainability_financed",
+          "operator": "is_true"
+        },
+        "expression": "if sustainability: ltv_pct <= 106"
+      },
+      "remediation": "Confirm the sustainability quotation; cap at 106%.",
+      "examples": [
+        {
+          "description": "102.2% w/ measures",
+          "application_excerpt": {
+            "loan.ltv_pct": 102.2,
+            "loan.sustainability_financed": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 106%."
+        },
+        {
+          "description": "109% w/ measures",
+          "application_excerpt": {
+            "loan.ltv_pct": 109,
+            "loan.sustainability_financed": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 106%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-003",
+      "rule_name": "Residual debt LTV up to 110%",
+      "category": "loan_to_value",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.5",
+      "description": "When financing a residual debt the LTV may go up to 110%.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 110,
+        "only_when": {
+          "field": "loan.is_residual_debt",
+          "operator": "is_true"
+        },
+        "expression": "if residual debt: ltv_pct <= 110"
+      },
+      "remediation": "Residual-debt LTV is capped at 110%.",
+      "examples": [
+        {
+          "description": "Residual 108%",
+          "application_excerpt": {
+            "loan.is_residual_debt": true,
+            "loan.ltv_pct": 108
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 110%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-004",
+      "rule_name": "Loans over EUR 2,000,000 capped at 90% LTV",
+      "category": "loan_to_value",
+      "severity": "blocking",
+      "nhg_scope": "without_nhg_only",
+      "source_ref": "Ch.10.5",
+      "description": "Mortgages above EUR 2,000,000 have a maximum LTV of 90%.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 90,
+        "only_when": {
+          "field": "loan.amount",
+          "operator": ">",
+          "value": 2000000
+        },
+        "expression": "if amount > 2M: ltv_pct <= 90"
+      },
+      "remediation": "Reduce LTV to <=90% for loans above EUR 2M.",
+      "examples": [
+        {
+          "description": "2.5M at 85%",
+          "application_excerpt": {
+            "loan.amount": 2500000,
+            "loan.ltv_pct": 85
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 90%."
+        },
+        {
+          "description": "2.5M at 95%",
+          "application_excerpt": {
+            "loan.amount": 2500000,
+            "loan.ltv_pct": 95
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 90%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-005",
+      "rule_name": "Interest-only portion max 50% of value",
+      "category": "loan_to_value",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.5",
+      "description": "Interest-only loan parts are limited to 50% of market value (40% under maatwerk).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.interest_only_pct_of_value",
+        "operator": "<=",
+        "value": 50,
+        "expression": "interest_only_pct_of_value <= 50"
+      },
+      "remediation": "Reduce the interest-only portion to <=50%.",
+      "examples": [
+        {
+          "description": "40%",
+          "application_excerpt": {
+            "loan.interest_only_pct_of_value": 40
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 50%."
+        },
+        {
+          "description": "60%",
+          "application_excerpt": {
+            "loan.interest_only_pct_of_value": 60
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 50%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LTV-006",
+      "rule_name": "Consumer-purpose draw max 90% LTV",
+      "category": "loan_to_value",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.8",
+      "description": "A consumer-purpose (consumptief) draw has a maximum LTV of 90% and must fit the standard norm.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.ltv_pct",
+        "operator": "<=",
+        "value": 90,
+        "only_when": {
+          "field": "loan.consumer_purpose",
+          "operator": "is_true"
+        },
+        "expression": "if consumer purpose: ltv_pct <= 90"
+      },
+      "remediation": "Cap consumer-purpose draws at 90% LTV.",
+      "examples": [
+        {
+          "description": "Consumer 85%",
+          "application_excerpt": {
+            "loan.consumer_purpose": true,
+            "loan.ltv_pct": 85
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 90%."
+        },
+        {
+          "description": "Consumer 95%",
+          "application_excerpt": {
+            "loan.consumer_purpose": true,
+            "loan.ltv_pct": 95
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 90%."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-004",
+      "rule_name": "Bridging requires a first mortgage >= EUR 50,000",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.6",
+      "description": "A bridging loan is offered only with a first mortgage of at least EUR 50,000.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.amount",
+        "operator": ">=",
+        "value": 50000,
+        "only_when": {
+          "field": "loan.bridging",
+          "operator": "is_true"
+        },
+        "expression": "if bridging: first mortgage >= 50,000"
+      },
+      "remediation": "Ensure a qualifying first mortgage accompanies the bridge.",
+      "examples": [
+        {
+          "description": "Bridge + 200k",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "loan.amount": 200000
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Qualifying first mortgage."
+        },
+        {
+          "description": "Bridge + 30k",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "loan.amount": 30000
+          },
+          "expected_status": "fail",
+          "expected_evidence": "First mortgage below 50,000."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-005",
+      "rule_name": "Bridging term max 2 years",
+      "category": "loan",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.6.2",
+      "description": "A bridging loan has a maximum term of 2 years.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.bridging_term_years",
+        "operator": "<=",
+        "value": 2,
+        "only_when": {
+          "field": "loan.bridging",
+          "operator": "is_true"
+        },
+        "expression": "if bridging: bridging_term_years <= 2"
+      },
+      "remediation": "Cap the bridging term at 2 years.",
+      "examples": [
+        {
+          "description": "1-year bridge",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "loan.bridging_term_years": 1
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 2 years."
+        },
+        {
+          "description": "3-year bridge",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "loan.bridging_term_years": 3
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 2 years."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-006",
+      "rule_name": "Bridging amount basis",
+      "category": "loan",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.6.1",
+      "description": "Bridging amount is based on 99% of the sale price (definitively sold) or 95% of the appraised value (not yet sold).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "bridging: 99% of sale price if sold, else 95% of appraised value."
+      },
+      "remediation": "Apply the correct bridging percentage.",
+      "examples": [
+        {
+          "description": "Sold home",
+          "application_excerpt": {
+            "loan.bridging": true,
+            "loan.old_home_sold": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Use 99% of sale price."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-007",
+      "rule_name": "Pure refinance LTV 100% (else 80%)",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.7.1",
+      "description": "A pure refinance is allowed up to 100% of value if the annuity test charge fits the allowed burden; otherwise up to 80%.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "pure refinance: 100% if annuity charge fits; else 80%."
+      },
+      "remediation": "Confirm the annuity charge fits, else cap at 80%.",
+      "examples": [
+        {
+          "description": "Pure refinance",
+          "application_excerpt": {
+            "loan.pure_refinance": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Check burden fit."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-008",
+      "rule_name": "Refinance to NHG conditions",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.7.2",
+      "description": "Refinancing from non-NHG to NHG requires >=10% extra linear/annuity repayment, or a renovation of >= EUR 2,500, or it being needed to keep the home.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "refinance to NHG: +10% repayment OR >=2,500 renovation OR home retention."
+      },
+      "remediation": "Meet one of the refinance-to-NHG conditions.",
+      "examples": [
+        {
+          "description": "Refinance to NHG",
+          "application_excerpt": {
+            "loan.refinance_to_nhg": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify a qualifying condition."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-009",
+      "rule_name": "No refinancing of business loans",
+      "category": "loan",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.8",
+      "description": "Refinancing a loan for business purposes is never allowed.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.refinances_business_loan",
+        "operator": "is_false",
+        "expression": "refinances_business_loan == false"
+      },
+      "remediation": "Business-loan refinancing is not permitted.",
+      "examples": [
+        {
+          "description": "Consumer refinance",
+          "application_excerpt": {
+            "loan.refinances_business_loan": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Not a business loan."
+        },
+        {
+          "description": "Business refinance",
+          "application_excerpt": {
+            "loan.refinances_business_loan": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Business-loan refinancing not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-010",
+      "rule_name": "Refinanced consumer credit repaid in <=10 years",
+      "category": "loan",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.8",
+      "description": "Refinanced consumer credits must be repaid on annuity/linear basis within 10 years.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.refinanced_consumer_credit_term_years",
+        "operator": "<=",
+        "value": 10,
+        "only_when": {
+          "field": "loan.refinanced_consumer_credit_term_years",
+          "operator": "exists"
+        },
+        "expression": "refinanced consumer credit term <= 10"
+      },
+      "remediation": "Set the refinanced consumer-credit term to <=10 years.",
+      "examples": [
+        {
+          "description": "8-year term",
+          "application_excerpt": {
+            "loan.refinanced_consumer_credit_term_years": 8
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 10 years."
+        },
+        {
+          "description": "15-year term",
+          "application_excerpt": {
+            "loan.refinanced_consumer_credit_term_years": 15
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 10 years."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-011",
+      "rule_name": "Bank guarantee only with our mortgage",
+      "category": "loan",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.11",
+      "description": "A bank guarantee is issued only when the mortgage is taken out with us.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "bank guarantee only if mortgage is with us."
+      },
+      "remediation": "Bank guarantee requires an ASN mortgage.",
+      "examples": [
+        {
+          "description": "Guarantee request",
+          "application_excerpt": {
+            "loan.bank_guarantee_requested": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Only with our mortgage."
+        }
+      ]
+    },
+    {
+      "rule_id": "LOAN-012",
+      "rule_name": "Interest-only max 50% for existing customers",
+      "category": "loan",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.10.8",
+      "description": "Existing customers may finance up to 50% interest-only if the post-financing LTV is <=50% (not for credit refinancing).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "existing customers: interest-only up to 50% if resulting LTV <= 50%."
+      },
+      "remediation": "Verify the resulting LTV and customer tenure.",
+      "examples": [
+        {
+          "description": "Existing customer",
+          "application_excerpt": {
+            "loan.existing_customer": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify LTV <=50%."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-001",
+      "rule_name": "No maatwerk above EUR 1,250,000",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11",
+      "description": "Maatwerk (deviation from the standard norm) is not possible for mortgages above EUR 1,250,000.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.amount",
+        "operator": "<=",
+        "value": 1250000,
+        "only_when": {
+          "field": "loan.maatwerk",
+          "operator": "is_true"
+        },
+        "expression": "if maatwerk: amount <= 1,250,000"
+      },
+      "remediation": "Maatwerk is unavailable above EUR 1,250,000.",
+      "examples": [
+        {
+          "description": "Maatwerk 900k",
+          "application_excerpt": {
+            "loan.maatwerk": true,
+            "loan.amount": 900000
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within limit."
+        },
+        {
+          "description": "Maatwerk 1.4M",
+          "application_excerpt": {
+            "loan.maatwerk": true,
+            "loan.amount": 1400000
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Above maatwerk limit."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-002",
+      "rule_name": "Maatwerk interest-only max 40%",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11.1",
+      "description": "Under maatwerk an interest-only loan part is allowed up to 40% of market value (50% in specific cases).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.interest_only_pct_of_value",
+        "operator": "<=",
+        "value": 40,
+        "only_when": {
+          "field": "loan.maatwerk",
+          "operator": "is_true"
+        },
+        "expression": "if maatwerk: interest_only_pct_of_value <= 40"
+      },
+      "remediation": "Cap interest-only at 40% under maatwerk.",
+      "examples": [
+        {
+          "description": "Maatwerk 35%",
+          "application_excerpt": {
+            "loan.maatwerk": true,
+            "loan.interest_only_pct_of_value": 35
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within 40%."
+        },
+        {
+          "description": "Maatwerk 48%",
+          "application_excerpt": {
+            "loan.maatwerk": true,
+            "loan.interest_only_pct_of_value": 48
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 40%."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-003",
+      "rule_name": "Robust stable income at LTV >= 80%",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11.3",
+      "description": "When LTV >= 80%, at least 80% of test income must be fixed and stable; otherwise maatwerk is not possible.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "income.fixed_stable_pct",
+        "operator": ">=",
+        "value": 80,
+        "only_when": {
+          "field": "loan.ltv_pct",
+          "operator": ">=",
+          "value": 80
+        },
+        "expression": "if ltv >= 80: fixed_stable_pct >= 80"
+      },
+      "remediation": "Increase the share of fixed/stable income or reduce LTV.",
+      "examples": [
+        {
+          "description": "90% fixed at LTV 85",
+          "application_excerpt": {
+            "loan.ltv_pct": 85,
+            "income.fixed_stable_pct": 90
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Robust income."
+        },
+        {
+          "description": "60% fixed at LTV 85",
+          "application_excerpt": {
+            "loan.ltv_pct": 85,
+            "income.fixed_stable_pct": 60
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Insufficient fixed income at high LTV."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-004",
+      "rule_name": "Maatwerk + joint-liability release min 12 months",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11.2",
+      "description": "Maatwerk with release of joint liability is only possible if the current mortgage has run >=12 months at an ASN brand.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.months_at_asn",
+        "operator": ">=",
+        "value": 12,
+        "only_when": {
+          "field": "loan.release_joint_liability",
+          "operator": "is_true"
+        },
+        "expression": "if release joint liability: months_at_asn >= 12"
+      },
+      "remediation": "Wait until the mortgage has run >=12 months at an ASN brand.",
+      "examples": [
+        {
+          "description": "18 months",
+          "application_excerpt": {
+            "loan.release_joint_liability": true,
+            "loan.months_at_asn": 18
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Eligible."
+        },
+        {
+          "description": "6 months",
+          "application_excerpt": {
+            "loan.release_joint_liability": true,
+            "loan.months_at_asn": 6
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Under 12 months."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-005",
+      "rule_name": "Seniors AOW-gap fixed-rate period >= 10 years",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11.4",
+      "description": "For seniors with an AOW gap tested on actual charges, the fixed-rate period must be at least 10 years (and last to the youngest applicant's AOW date).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.fixed_rate_period_years",
+        "operator": ">=",
+        "value": 10,
+        "only_when": {
+          "field": "loan.senior_aow_gap",
+          "operator": "is_true"
+        },
+        "expression": "if senior AOW gap: fixed_rate_period_years >= 10"
+      },
+      "remediation": "Set the fixed-rate period to >=10 years for AOW-gap cases.",
+      "examples": [
+        {
+          "description": "RVP 15y",
+          "application_excerpt": {
+            "loan.senior_aow_gap": true,
+            "loan.fixed_rate_period_years": 15
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within rule."
+        },
+        {
+          "description": "RVP 5y",
+          "application_excerpt": {
+            "loan.senior_aow_gap": true,
+            "loan.fixed_rate_period_years": 5
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Fixed-rate period too short."
+        }
+      ]
+    },
+    {
+      "rule_id": "MW-006",
+      "rule_name": "Seniors buying another home: fixed-rate >= 20 years",
+      "category": "maatwerk",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.11.5",
+      "description": "Seniors buying another home and tested on actual charges need a fixed-rate period of at least 20 years (max 80% LTV without NHG).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "loan.fixed_rate_period_years",
+        "operator": ">=",
+        "value": 20,
+        "only_when": {
+          "field": "loan.senior_new_home",
+          "operator": "is_true"
+        },
+        "expression": "if senior new home: fixed_rate_period_years >= 20"
+      },
+      "remediation": "Set the fixed-rate period to >=20 years.",
+      "examples": [
+        {
+          "description": "RVP 20y",
+          "application_excerpt": {
+            "loan.senior_new_home": true,
+            "loan.fixed_rate_period_years": 20
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within rule."
+        },
+        {
+          "description": "RVP 10y",
+          "application_excerpt": {
+            "loan.senior_new_home": true,
+            "loan.fixed_rate_period_years": 10
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Fixed-rate period too short."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-001",
+      "rule_name": "Calcasa not allowed with maatwerk",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.12.1",
+      "description": "A Calcasa desktop valuation is not allowed in combination with maatwerk.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Calcasa not allowed with maatwerk."
+      },
+      "remediation": "Use a validated NWWI valuation under maatwerk.",
+      "examples": [
+        {
+          "description": "Maatwerk + Calcasa",
+          "application_excerpt": {
+            "loan.maatwerk": true,
+            "valuation.method": "calcasa"
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Calcasa not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-002",
+      "rule_name": "WOZ valuation only to lower tariff group",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.12.1",
+      "description": "A WOZ valuation may be used only to lower the tariff group, up to 75% of WOZ value (85% of WOZ used as market value).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "WOZ valuation only for tariff-group lowering; up to 75% WOZ."
+      },
+      "remediation": "Use WOZ only for tariff-group reductions.",
+      "examples": [
+        {
+          "description": "Tariff request",
+          "application_excerpt": {
+            "valuation.method": "WOZ",
+            "change.lower_tariff": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "WOZ allowed for tariff lowering."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-003",
+      "rule_name": "Late payments allow change rejection",
+      "category": "changes",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.12.2",
+      "description": "If a customer has not paid on time (with us or elsewhere), a change request may be rejected and routed to Bijzonder Beheer.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "change.payment_arrears",
+        "operator": "is_false",
+        "expression": "payment_arrears == false (else may reject)"
+      },
+      "remediation": "Resolve arrears; Bijzonder Beheer assesses if active.",
+      "examples": [
+        {
+          "description": "No arrears",
+          "application_excerpt": {
+            "change.payment_arrears": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "No arrears."
+        },
+        {
+          "description": "Arrears present",
+          "application_excerpt": {
+            "change.payment_arrears": true
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Change may be rejected."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-004",
+      "rule_name": "Switch to interest-only = new mortgage",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.13.4",
+      "description": "Changing the repayment form to interest-only is treated as a new mortgage (full income and value testing).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "to interest-only -> full acceptance testing."
+      },
+      "remediation": "Apply full acceptance rules for switches to interest-only.",
+      "examples": [
+        {
+          "description": "To interest-only",
+          "application_excerpt": {
+            "change.to_interest_only": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Full testing required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-005",
+      "rule_name": "Joint-liability release conditions",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.17.1",
+      "description": "A co-debtor can be released only if the remaining customer obtains full ownership, has 5 years of clean payments, and has sufficient income.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "release: full ownership + 5y clean payments + sufficient income."
+      },
+      "remediation": "Verify ownership, payment history, and income.",
+      "examples": [
+        {
+          "description": "Divorce buyout",
+          "application_excerpt": {
+            "change.release_joint_liability": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify release conditions."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-006",
+      "rule_name": "NWWI valuation for joint-liability release",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.17.2",
+      "description": "The value for a joint-liability release must come from a validated NWWI valuation (Calcasa only if the divorce settlement used it).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "joint-liability release value from NWWI taxatie (Calcasa only per settlement)."
+      },
+      "remediation": "Provide a validated NWWI valuation.",
+      "examples": [
+        {
+          "description": "Release valuation",
+          "application_excerpt": {
+            "change.release_joint_liability": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "NWWI valuation required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-007",
+      "rule_name": "New debtor equal share, no arrears",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.17.3",
+      "description": "A new partner joining as owner/debtor must take an equal ownership share and have no payment arrears.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "new debtor: equal share + no arrears + KYC."
+      },
+      "remediation": "Verify equal share and clean credit for the new debtor.",
+      "examples": [
+        {
+          "description": "New partner added",
+          "application_excerpt": {
+            "change.new_debtor": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify share and credit."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-008",
+      "rule_name": "Surviving partner affordability",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.18.1",
+      "description": "If the surviving partner stays in the home, the mortgage may continue if that partner can afford the monthly charges.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "surviving partner must afford the monthly charges."
+      },
+      "remediation": "Test the surviving partner's affordability.",
+      "examples": [
+        {
+          "description": "Partner stays",
+          "application_excerpt": {
+            "change.surviving_partner": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Affordability test required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-009",
+      "rule_name": "Heir takeover = full testing",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.18.2",
+      "description": "An heir taking over the home from other heirs is fully tested on income and value (with KYC).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "heir takeover -> full acceptance testing + KYC."
+      },
+      "remediation": "Apply full acceptance rules to heir takeovers.",
+      "examples": [
+        {
+          "description": "Heir buyout",
+          "application_excerpt": {
+            "change.heir_takeover": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Full testing required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-010",
+      "rule_name": "Repay within 1 year of death without penalty",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.18.3",
+      "description": "On death of the debtor/cohabiting partner, the mortgage may be (partly) repaid within 1 year without an early-repayment penalty.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "repayment within 1 year of death is penalty-free."
+      },
+      "remediation": "Allow penalty-free repayment within 1 year of death.",
+      "examples": [
+        {
+          "description": "Death of debtor",
+          "application_excerpt": {
+            "change.death_event": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Penalty-free within 1 year."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-011",
+      "rule_name": "End-date refinance interest-only <= 50%",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.19",
+      "description": "At the mortgage end date a new mortgage may finance up to 50% interest-only even outside the standard norm (absolute amount may not grow).",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "end-date refinance: interest-only <= 50%; absolute amount not larger."
+      },
+      "remediation": "Cap interest-only at 50% on end-date refinance.",
+      "examples": [
+        {
+          "description": "End-date refinance",
+          "application_excerpt": {
+            "change.end_date_refinance": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Interest-only <=50%."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-012",
+      "rule_name": "Bridging extension only for existing build",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.19.3",
+      "description": "A bridging loan for new build (2y) cannot be extended; existing build (1y) can be extended by max 1 year under conditions.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "new-build bridge not extendable; existing-build +1y under conditions."
+      },
+      "remediation": "Verify build type and extension conditions.",
+      "examples": [
+        {
+          "description": "Bridge extension",
+          "application_excerpt": {
+            "change.bridging_extension": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Verify extension eligibility."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-013",
+      "rule_name": "Belgium mortgage replacement max 25 years",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.19.4",
+      "description": "For the legacy Belgium mortgage, a replacement loan must be fully amortising with a max term of 25 years.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "Belgium mortgage replacement: fully amortising, term <= 25 years."
+      },
+      "remediation": "Structure a fully amortising loan within 25 years.",
+      "examples": [
+        {
+          "description": "Belgium legacy",
+          "application_excerpt": {
+            "change.belgium_mortgage": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Max 25-year amortising loan."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-014",
+      "rule_name": "No permanent rental of the home",
+      "category": "changes",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.20",
+      "description": "The home may not be rented out permanently; only temporary (Leegstandswet) or temporary recreational rental is allowed.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "change.permanent_rental",
+        "operator": "is_false",
+        "expression": "permanent_rental == false"
+      },
+      "remediation": "Permanent rental is not allowed; obtain consent for temporary rental.",
+      "examples": [
+        {
+          "description": "Owner-occupied",
+          "application_excerpt": {
+            "change.permanent_rental": false
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Not permanently rented."
+        },
+        {
+          "description": "Permanent rental",
+          "application_excerpt": {
+            "change.permanent_rental": true
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Permanent rental not allowed."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-015",
+      "rule_name": "Temporary recreational rental limits",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.20.2",
+      "description": "Temporary recreational rental needs prior written consent: home remains main residence, <=60 days/year, never >4 weeks consecutively, with suitable insurance.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "change.recreational_rental_days",
+        "operator": "<=",
+        "value": 60,
+        "only_when": {
+          "field": "change.recreational_rental",
+          "operator": "is_true"
+        },
+        "expression": "if recreational rental: days <= 60/year"
+      },
+      "remediation": "Limit recreational rental to <=60 days/year with consent.",
+      "examples": [
+        {
+          "description": "40 days",
+          "application_excerpt": {
+            "change.recreational_rental": true,
+            "change.recreational_rental_days": 40
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Within limit."
+        },
+        {
+          "description": "90 days",
+          "application_excerpt": {
+            "change.recreational_rental": true,
+            "change.recreational_rental_days": 90
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Exceeds 60 days."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-016",
+      "rule_name": "Second charge requires risk assessment",
+      "category": "changes",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Ch.21.1",
+      "description": "Allowing a second mortgage charge behind ours requires a risk assessment including a BKR check; it may be refused.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "second charge: risk assessment + BKR check; may refuse."
+      },
+      "remediation": "Perform a risk assessment for the second charge.",
+      "examples": [
+        {
+          "description": "Second charge request",
+          "application_excerpt": {
+            "change.second_charge": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Risk assessment required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-017",
+      "rule_name": "Partial release valuation thresholds",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.21.2",
+      "description": "Partial release: <5 m2 needs no income/value test; 5 m2-10% may use Calcasa if LTV<90%; larger needs an NWWI report before/after.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "partial release thresholds: <5m2 none; <10% Calcasa if LTV<90%; else NWWI."
+      },
+      "remediation": "Apply the partial-release thresholds.",
+      "examples": [
+        {
+          "description": "Garden strip",
+          "application_excerpt": {
+            "change.partial_release_m2": 3
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "No test for <5 m2."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-018",
+      "rule_name": "Cooperative to apartment-right conversion",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.21.3",
+      "description": "Converting cooperative ownership to an apartment right is accepted without retesting only if the mortgage is not increased/changed.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "coop->apartment right: no retest if no increase/change."
+      },
+      "remediation": "Confirm no mortgage increase accompanies the conversion.",
+      "examples": [
+        {
+          "description": "Conversion request",
+          "application_excerpt": {
+            "change.coop_to_apartment": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "No retest if unchanged."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-019",
+      "rule_name": "Lower repayment target retesting",
+      "category": "changes",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.13.1",
+      "description": "Lowering the repayment target requires income and value testing per the acceptance rules.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "lowering repayment target -> income + value testing."
+      },
+      "remediation": "Apply acceptance testing for a lower repayment target.",
+      "examples": [
+        {
+          "description": "Lower target",
+          "application_excerpt": {
+            "change.lower_repayment_target": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Testing required."
+        }
+      ]
+    },
+    {
+      "rule_id": "CHG-020",
+      "rule_name": "Penalty-free repayment on sale",
+      "category": "changes",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Ch.14.1",
+      "description": "Selling the home and repaying from the proceeds is penalty-free, unless the customer chose the 'penalty on moving' budget option.",
+      "auto_evaluable": false,
+      "check": {
+        "type": "manual_review",
+        "expression": "sale repayment penalty-free unless 'boete bij verhuizen' chosen."
+      },
+      "remediation": "Check the budget-option election for penalties.",
+      "examples": [
+        {
+          "description": "Sells home",
+          "application_excerpt": {
+            "change.sale_repayment": true
+          },
+          "expected_status": "unknown",
+          "expected_evidence": "Usually penalty-free."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-001",
+      "rule_name": "Valid identification provided",
+      "category": "documents",
+      "severity": "blocking_never_deviate",
+      "nhg_scope": "both",
+      "source_ref": "Ch.2.6",
+      "description": "A valid identity document is required for every applicant (Wwft).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "applicant.id_document_valid",
+        "operator": "is_true",
+        "expression": "id_document_valid == true"
+      },
+      "remediation": "Provide a valid passport/ID card for every applicant.",
+      "examples": [
+        {
+          "description": "Valid ID",
+          "application_excerpt": {
+            "applicant.id_document_valid": true
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Valid ID."
+        },
+        {
+          "description": "No ID",
+          "application_excerpt": {
+            "applicant.id_document_valid": false
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No valid ID."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-002",
+      "rule_name": "Employer's statement for salaried income",
+      "category": "documents",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst/Ch.3",
+      "description": "A werkgeversverklaring is required for salaried applicants.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "werkgeversverklaring",
+        "expression": "'werkgeversverklaring' in documents"
+      },
+      "remediation": "Provide the employer's statement for each salaried applicant.",
+      "examples": [
+        {
+          "description": "Provided",
+          "application_excerpt": {
+            "documents": [
+              "werkgeversverklaring",
+              "loonstrook"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Statement provided."
+        },
+        {
+          "description": "Missing",
+          "application_excerpt": {
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Statement missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-003",
+      "rule_name": "Salary slips provided",
+      "category": "documents",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst/Ch.3",
+      "description": "Recent salary slips (loonstrook) are required for salaried income.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "loonstrook",
+        "expression": "'loonstrook' in documents"
+      },
+      "remediation": "Provide recent salary slips.",
+      "examples": [
+        {
+          "description": "Slip present",
+          "application_excerpt": {
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Slips provided."
+        },
+        {
+          "description": "No slip",
+          "application_excerpt": {
+            "documents": [
+              "werkgeversverklaring"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Salary slips missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-004",
+      "rule_name": "UWV report for short/temporary employment",
+      "category": "documents",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst/Ch.3.7",
+      "description": "A UWV-verzekeringsbericht is required for employment <3 months, a second job, or a temporary contract.",
+      "auto_evaluable": true,
+      "check": {
+        "for_each": "income.applicants",
+        "when": {
+          "any_of": [
+            {
+              "field": "type",
+              "operator": "==",
+              "value": "temporary"
+            },
+            {
+              "field": "months_at_employer",
+              "operator": "<",
+              "value": 3
+            }
+          ]
+        },
+        "require": {
+          "field": "documents",
+          "operator": "contains",
+          "value": "uwv_verzekeringsbericht",
+          "scope": "root"
+        },
+        "expression": "temporary/<3-month -> 'uwv_verzekeringsbericht' in documents"
+      },
+      "remediation": "Request the UWV-verzekeringsbericht.",
+      "examples": [
+        {
+          "description": "Temp + UWV",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "temporary",
+                "months_at_employer": 27
+              }
+            ],
+            "documents": [
+              "uwv_verzekeringsbericht"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "UWV present."
+        },
+        {
+          "description": "Temp, no UWV",
+          "application_excerpt": {
+            "income.applicants": [
+              {
+                "type": "temporary",
+                "months_at_employer": 27
+              }
+            ],
+            "documents": [
+              "werkgeversverklaring"
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "UWV outstanding."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-005",
+      "rule_name": "Property valuation provided",
+      "category": "documents",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.8",
+      "description": "A valuation (validated taxatierapport, or Calcasa where allowed) is required.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains_any",
+        "value": [
+          "taxatierapport",
+          "calcasa_desktop_taxatie",
+          "woz_taxatieverslag"
+        ],
+        "expression": "documents contains a valuation"
+      },
+      "remediation": "Provide a validated valuation report.",
+      "examples": [
+        {
+          "description": "Taxatie",
+          "application_excerpt": {
+            "documents": [
+              "taxatierapport"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Valuation provided."
+        },
+        {
+          "description": "None",
+          "application_excerpt": {
+            "documents": [
+              "koopovereenkomst"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "No valuation."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-006",
+      "rule_name": "Income verification complete (jaaropgave)",
+      "category": "documents",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst/Ch.3",
+      "description": "Income verification needs salary slips and the annual statement (jaaropgave).",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains_all",
+        "value": [
+          "loonstrook",
+          "jaaropgave"
+        ],
+        "expression": "documents contains loonstrook AND jaaropgave"
+      },
+      "remediation": "Request the missing income documents (jaaropgave / tax returns).",
+      "examples": [
+        {
+          "description": "Both present",
+          "application_excerpt": {
+            "documents": [
+              "loonstrook",
+              "jaaropgave"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Income docs complete."
+        },
+        {
+          "description": "Jaaropgave missing",
+          "application_excerpt": {
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Jaaropgave outstanding."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-007",
+      "rule_name": "Purchase agreement provided",
+      "category": "documents",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst",
+      "description": "A signed purchase agreement (koopovereenkomst) is required for a purchase.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "koopovereenkomst",
+        "skip_when": {
+          "field": "loan.purpose",
+          "operator": "in",
+          "value": [
+            "refinance",
+            "oversluiten"
+          ]
+        },
+        "expression": "'koopovereenkomst' in documents (for purchases)"
+      },
+      "remediation": "Provide the signed purchase agreement.",
+      "examples": [
+        {
+          "description": "Provided",
+          "application_excerpt": {
+            "documents": [
+              "koopovereenkomst"
+            ],
+            "loan.purpose": "primary residence purchase"
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Agreement provided."
+        },
+        {
+          "description": "Missing",
+          "application_excerpt": {
+            "documents": [
+              "taxatierapport"
+            ],
+            "loan.purpose": "primary residence purchase"
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Purchase agreement missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-008",
+      "rule_name": "Bank statements provided",
+      "category": "documents",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "Stukkenlijst",
+      "description": "Recent bank statements are required to assess the financial situation.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains",
+        "value": "bank_statements",
+        "expression": "'bank_statements' in documents"
+      },
+      "remediation": "Provide recent bank statements.",
+      "examples": [
+        {
+          "description": "Provided",
+          "application_excerpt": {
+            "documents": [
+              "bank_statements"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Statements provided."
+        },
+        {
+          "description": "Missing",
+          "application_excerpt": {
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Bank statements outstanding."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-009",
+      "rule_name": "Self-employed annual figures provided",
+      "category": "documents",
+      "severity": "blocking",
+      "nhg_scope": "both",
+      "source_ref": "Ch.4",
+      "description": "Self-employed applicants must provide annual figures / tax returns to establish income.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains_any",
+        "value": [
+          "annual_accounts",
+          "tax_returns",
+          "jaarrapport"
+        ],
+        "only_when": {
+          "field": "self_employed.years_active",
+          "operator": "exists"
+        },
+        "expression": "self-employed -> annual figures in documents"
+      },
+      "remediation": "Provide annual accounts / tax returns.",
+      "examples": [
+        {
+          "description": "Accounts present",
+          "application_excerpt": {
+            "self_employed.years_active": 5,
+            "documents": [
+              "jaarrapport"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Figures provided."
+        },
+        {
+          "description": "Missing",
+          "application_excerpt": {
+            "self_employed.years_active": 5,
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "fail",
+          "expected_evidence": "Annual figures missing."
+        }
+      ]
+    },
+    {
+      "rule_id": "DOC-010",
+      "rule_name": "Energy/sustainability quotation for 106% uplift",
+      "category": "documents",
+      "severity": "warning",
+      "nhg_scope": "both",
+      "source_ref": "ASN Duurzaam Wonen",
+      "description": "When the sustainability uplift is used, an energy label and sustainability quotation must support the extra amount.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "documents",
+        "operator": "contains_any",
+        "value": [
+          "energy_label",
+          "sustainability_quotation"
+        ],
+        "only_when": {
+          "field": "loan.sustainability_financed",
+          "operator": "is_true"
+        },
+        "expression": "sustainability -> energy/sustainability quotation in documents"
+      },
+      "remediation": "Provide the sustainability quotation/energy label.",
+      "examples": [
+        {
+          "description": "Label present",
+          "application_excerpt": {
+            "loan.sustainability_financed": true,
+            "documents": [
+              "energy_label"
+            ]
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Quotation present."
+        },
+        {
+          "description": "Missing",
+          "application_excerpt": {
+            "loan.sustainability_financed": true,
+            "documents": [
+              "loonstrook"
+            ]
+          },
+          "expected_status": "warning",
+          "expected_evidence": "Sustainability quotation outstanding."
+        }
+      ]
+    },
+    {
+      "rule_id": "CREDIT-001",
+      "rule_name": "Credit score proxy threshold (optional)",
+      "category": "credit",
+      "severity": "info",
+      "nhg_scope": "both",
+      "source_ref": "Pipeline proxy",
+      "description": "Optional FICO-style score gate for pipelines supplying a numeric score; NL practice relies on BKR.",
+      "auto_evaluable": true,
+      "check": {
+        "field": "credit_score",
+        "operator": ">=",
+        "value": 680,
+        "skip_when": {
+          "field": "credit_score",
+          "operator": "not_exists"
+        },
+        "expression": "credit_score >= 680 (if supplied)"
+      },
+      "remediation": "If a numeric score is low, rely on the BKR assessment.",
+      "examples": [
+        {
+          "description": "690",
+          "application_excerpt": {
+            "credit_score": 690
+          },
+          "expected_status": "pass",
+          "expected_evidence": "Above threshold."
+        },
+        {
+          "description": "660",
+          "application_excerpt": {
+            "credit_score": 660
+          },
+          "expected_status": "info",
+          "expected_evidence": "Below proxy threshold."
+        }
+      ]
+    }
+  ]
+}

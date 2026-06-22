@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from src.tools.mortgage import (
+    create_mortgage_report_tool,
+    create_parse_mortgage_pdf_tool,
+    create_validate_mortgage_rules_tool,
+)
 from src.tools.rel_db.query import create_query_facts_tool
 from src.tools.validation.request_user_validation import create_request_user_validation_tool
 from src.tools.vector.index_doc import create_index_doc_tool
@@ -35,11 +40,26 @@ def _request_user_validation_factory(clients: dict[str, Any]) -> Any | None:
     return create_request_user_validation_tool()
 
 
+def _parse_mortgage_pdf_factory(clients: dict[str, Any]) -> Any | None:
+    return create_parse_mortgage_pdf_tool()
+
+
+def _validate_mortgage_rules_factory(clients: dict[str, Any]) -> Any | None:
+    return create_validate_mortgage_rules_tool()
+
+
+def _create_mortgage_report_factory(clients: dict[str, Any]) -> Any | None:
+    return create_mortgage_report_tool()
+
+
 _TOOL_FACTORIES: dict[str, Callable[[dict[str, Any]], Any | None]] = {
     "query_facts": _query_facts_factory,
     "search_docs": _search_docs_factory,
     "index_doc": _index_doc_factory,
     "request_user_validation": _request_user_validation_factory,
+    "parse_mortgage_pdf": _parse_mortgage_pdf_factory,
+    "validate_mortgage_rules": _validate_mortgage_rules_factory,
+    "create_mortgage_report": _create_mortgage_report_factory,
 }
 
 

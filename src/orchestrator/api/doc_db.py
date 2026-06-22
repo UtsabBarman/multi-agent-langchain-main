@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from pathlib import Path
 
 import chromadb
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -11,6 +13,9 @@ from src.data_access.vector.indexing import index_text_to_chroma
 
 log = logging.getLogger("orchestrator.api.doc_db")
 MAX_UPLOAD_BYTES = int(os.environ.get("DOC_UPLOAD_MAX_BYTES", "5242880"))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+MORTGAGE_UPLOAD_DIR = PROJECT_ROOT / "data" / "uploads" / "mortgage"
+MORTGAGE_RULES_PATH = PROJECT_ROOT / "examples" / "sample_data" / "asn_mortgage_rules.json"
 
 router = APIRouter()
 
@@ -95,6 +100,45 @@ async def upload_doc_to_chroma(
     except Exception as e:
         log.exception("Doc upload failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mortgage/upload")
+async def upload_mortgage_pdf(file: UploadFile = File(...)):
+    """Upload a mortgage application PDF and return a local path for mortgage agents."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only .pdf files are supported")
+    try:
+        raw = await file.read()
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_BYTES} bytes)")
+        if not raw:
+            raise HTTPException(status_code=400, detail="File is empty")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", file.filename)
+    MORTGAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    target = MORTGAGE_UPLOAD_DIR / safe_name
+    if target.exists():
+        stem = target.stem
+        suffix = target.suffix
+        idx = 2
+        while target.exists():
+            target = MORTGAGE_UPLOAD_DIR / f"{stem}_{idx}{suffix}"
+            idx += 1
+    try:
+        target.write_bytes(raw)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
+
+    return {
+        "status": "ok",
+        "filename": file.filename,
+        "pdf_path": str(target),
+        "rules_path": str(MORTGAGE_RULES_PATH),
+    }
 
 
 @router.get("/db/connections")

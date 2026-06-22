@@ -11,9 +11,9 @@ import httpx
 
 log = logging.getLogger("executor")
 
-# Per-agent HTTP: connect 10s, read 120s. Retry up to 3 times with exponential backoff (1, 2, 4 s).
+# Per-agent HTTP: connect 10s, read 300s. Retry up to 3 times with exponential backoff (1, 2, 4 s).
 CONNECT_TIMEOUT = 10.0
-READ_TIMEOUT = 120.0
+READ_TIMEOUT = 300.0
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECS = (1, 2, 4)
 # Circuit breaker: open after this many consecutive failures; stay open for OPEN_SECS.

@@ -156,6 +156,12 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
 .input-inner:focus-within { border-color: #19c37d; box-shadow: 0 0 0 1px #19c37d; }
 #query { flex: 1; min-width: 0; background: none; border: none; color: #ececec; font-size: 1rem; padding: 0.4rem 0; outline: none; }
 #query::placeholder { color: #8e8ea0; }
+.attach-btn { width: 36px; height: 36px; border: none; border-radius: 10px; background: transparent; color: #a1a1aa; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.attach-btn:hover { background: rgba(255,255,255,0.08); color: #e4e4e7; }
+.attach-btn.has-file { color: #19c37d; background: rgba(25,195,125,0.12); }
+.upload-status { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: #a1a1aa; }
+.upload-status.err { color: #f87171; }
+.upload-status.ok { color: #19c37d; }
 #send { background: #19c37d; color: #fff; border: none; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 #send:hover { background: #1a7f4b; }
 #send:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -210,7 +216,10 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background:
   </div>
   <div class="input-wrap">
     <div class="input-inner">
+      <input type="file" id="mortgage-pdf" accept="application/pdf,.pdf" style="display:none">
+      <button type="button" id="attach-pdf" class="attach-btn" title="Upload mortgage PDF" aria-label="Upload mortgage PDF"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></button>
       <input type="text" id="query" placeholder="Message…" autocomplete="off">
+      <span id="upload-status" class="upload-status"></span>
       <button type="button" id="send" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
     </div>
   </div>
@@ -230,6 +239,9 @@ var emptyEl = document.getElementById('empty');
 var messagesEl = document.getElementById('messages');
 var queryEl = document.getElementById('query');
 var sendBtn = document.getElementById('send');
+var mortgagePdfEl = document.getElementById('mortgage-pdf');
+var attachPdfBtn = document.getElementById('attach-pdf');
+var uploadStatusEl = document.getElementById('upload-status');
 function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function sanitizeHtml(htmlStr) {
   if (!htmlStr || typeof htmlStr !== 'string') return '';
@@ -389,7 +401,7 @@ function reloadAgentIframe(num) {
   if (iframe && iframe.src) iframe.src = iframe.src;
 }
 var pollIntervalMs = 700;
-var pollTimeoutMs = 120000;
+var pollTimeoutMs = 600000;
 function renderApprovalCard(requestId, planSteps, liveEl) {
   var steps = planSteps || [];
   var html = '<div class="plan-approval-card" data-request-id="' + escapeHtml(requestId) + '">';
@@ -475,8 +487,22 @@ function onApproveSubmit(requestId, liveEl) {
     var start = Date.now();
     function poll() {
       if (Date.now() - start > pollTimeoutMs) {
-        liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Timeout</div><div class="reporter-content">Request took too long.</div></div>';
-        sendBtn.disabled = false;
+        fetch('/request/' + reqId).then(function(tr) { return tr.json(); }).then(function(trace) {
+          renderLiveReply(trace, liveEl);
+          var status = trace.status || 'running';
+          if (status !== 'running' && status !== 'pending' && status !== 'awaiting_user_input') {
+            sendBtn.disabled = false;
+            var msgDiv = liveEl.closest('.message');
+            if (msgDiv && msgDiv.id === 'live-reply') msgDiv.id = '';
+            loadHistory();
+            return;
+          }
+          liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Still running</div><div class="reporter-content">This request is taking longer than expected. You can open it from chat history to see the latest saved result.</div></div>';
+          sendBtn.disabled = false;
+        }).catch(function() {
+          liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Still running</div><div class="reporter-content">This request is taking longer than expected. You can open it from chat history to see the latest saved result.</div></div>';
+          sendBtn.disabled = false;
+        });
         return;
       }
       fetch('/request/' + reqId).then(function(tr) { return tr.json(); }).then(function(trace) {
@@ -489,6 +515,7 @@ function onApproveSubmit(requestId, liveEl) {
             reloadAgentIframe(num);
           }
           lastStepCount = stepResults.length;
+          start = Date.now();
         }
         var status = trace.status || 'running';
         if (status !== 'running' && status !== 'pending' && status !== 'awaiting_user_input') {
@@ -510,13 +537,39 @@ function onApproveSubmit(requestId, liveEl) {
     sendBtn.disabled = false;
   });
 }
+function setUploadStatus(text, cls) {
+  uploadStatusEl.textContent = text || '';
+  uploadStatusEl.className = 'upload-status' + (cls ? ' ' + cls : '');
+}
+attachPdfBtn.addEventListener('click', function() {
+  mortgagePdfEl.click();
+});
+mortgagePdfEl.addEventListener('change', function() {
+  var file = mortgagePdfEl.files[0];
+  attachPdfBtn.classList.toggle('has-file', !!file);
+  setUploadStatus(file ? file.name : '', file ? 'ok' : '');
+});
+async function uploadMortgagePdfIfSelected() {
+  var file = mortgagePdfEl.files[0];
+  if (!file) return null;
+  setUploadStatus('Uploading PDF…', '');
+  var fd = new FormData();
+  fd.append('file', file);
+  var r = await fetch('/api/mortgage/upload', { method: 'POST', body: fd });
+  var data = await r.json().catch(function() { return {}; });
+  if (!r.ok) throw new Error(data.detail || 'PDF upload failed');
+  setUploadStatus('PDF uploaded', 'ok');
+  mortgagePdfEl.value = '';
+  attachPdfBtn.classList.remove('has-file');
+  return data;
+}
 async function submit() {
   var q = queryEl.value.trim();
-  if (!q) return;
+  var hasPdf = !!mortgagePdfEl.files[0];
+  if (!q && !hasPdf) return;
   queryEl.value = '';
   activeRequestId = null;
   historyListEl.querySelectorAll('.history-item').forEach(function(el) { el.classList.remove('active'); });
-  addUserMessage(q);
   var prevLive = document.getElementById('live-reply');
   if (prevLive) {
     prevLive.id = '';
@@ -524,8 +577,17 @@ async function submit() {
     if (prevContent) prevContent.innerHTML = '<div class="bubble" style="color:#8e8ea0;">—</div>';
   }
   sendBtn.disabled = true;
-  var liveEl = addLiveReplyContainer();
+  var liveEl = null;
   try {
+    var upload = await uploadMortgagePdfIfSelected();
+    if (upload && upload.pdf_path) {
+      q = q || 'Review this mortgage application and produce a structured report showing which rules are not followed and why.';
+      q += '\n\nPDF path: ' + upload.pdf_path;
+      if (upload.rules_path) q += '\nRules JSON path: ' + upload.rules_path;
+      q += '\n\nWorkflow requirements:\n1. Application Parser must parse the PDF and extract detailed application information as JSON.\n2. Rule Validator must validate the extracted JSON against the rules JSON.\n3. Reporter must create a nice HTML report document and return the local download link.';
+    }
+    addUserMessage(q);
+    liveEl = addLiveReplyContainer();
     var r = await fetch('/query/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) });
     var data = await r.json().catch(function() { return {}; });
     if (r.status !== 200) {
@@ -546,6 +608,10 @@ async function submit() {
     renderApprovalCard(requestId, planSteps, liveEl);
     sendBtn.disabled = false;
   } catch (e) {
+    if (!liveEl) {
+      addUserMessage(q || 'Upload mortgage PDF');
+      liveEl = addLiveReplyContainer();
+    }
     liveEl.innerHTML = '<div class="reporter-card error"><div class="reporter-label">Error</div><div class="reporter-content">' + escapeHtml(e.message || 'Request failed') + '</div></div>';
     sendBtn.disabled = false;
   }
